@@ -1,0 +1,80 @@
+<h2>Electron 到 Tauri 迁移方案</h2>
+<p class="subtitle">桌面 Todo 组件的技术栈转型</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">现状：Electron (Node.js)</div>
+    <div class="mockup-body">
+      <div class="section">
+        <p><strong>核心架构：</strong></p>
+        <ul>
+          <li><strong>主进程 (JS):</strong> 处理 IPC, 窗口生命周期, 文件读写</li>
+          <li><strong>渲染进程 (React):</strong> UI 渲染, 调用 <code>electronAPI</code></li>
+          <li><strong>存储:</strong> <code>fs.writeFileSync</code> (JSON)</li>
+        </ul>
+      </div>
+      <div class="section">
+        <p><strong>置顶控制:</strong></p>
+        <code>setAlwaysOnTop(true, 'screen-saver')</code>
+        <p><small>避开 Win+D，常驻桌面</small></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">目标：Tauri (Rust)</div>
+    <div class="mockup-body">
+      <div class="section">
+        <p><strong>核心架构：</strong></p>
+        <ul>
+          <li><strong>后端 (Rust):</strong> 处理 IPC (Commands), 系统托盘, 线程</li>
+          <li><strong>前端 (React):</strong> UI 渲染, 调用 <code>@tauri-apps/api</code></li>
+          <li><strong>存储:</strong> <code>serde_json</code> + Rust IO (更安全)</li>
+        </ul>
+      </div>
+      <div class="section">
+        <p><strong>置顶控制:</strong></p>
+        <code>window.set_always_on_top(true)</code>
+        <p><small>Win+D 避让需要底层 Rust 实现 (Win32 API)</small></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>推荐迁移路径 (方案 2)</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>优势</h4>
+      <ul>
+        <li><strong>体积缩小 90%:</strong> 从 ~200MB 减至 ~10MB</li>
+        <li><strong>内存占用降低:</strong> 消除冗余的 Chrome 实例</li>
+        <li><strong>安全性更高:</strong> 前端无法直接写文件，需经后端授权</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>挑战</h4>
+      <ul>
+        <li><strong>Rust 语法:</strong> 需要编写少量的 Rust 胶水代码</li>
+        <li><strong>Windows 特定行为:</strong> "置顶避开 Win+D" 需要 Win32 调用</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="win32" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>完全保留 (Win32 API)</h3>
+      <p>在 Rust 中调用 Windows 原生接口，确保小组件行为与 Electron 完全一致。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="simple" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>简化方案 (Tauri 标准 API)</h3>
+      <p>普通的始终置顶。按 Win+D 会随桌面一同隐藏，手动点击托盘或任务栏恢复。</p>
+    </div>
+  </div>
+</div>

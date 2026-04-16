@@ -1,0 +1,79 @@
+<h2>Tauri Todo Widget - 自动归档方案</h2>
+<p class="subtitle">标签页切换与持久化逻辑</p>
+
+<div class="mockup">
+  <div class="mockup-header">
+    <div style="display:flex; gap:12px; align-items:center;">
+      <div style="background:#4facfe; padding:2px 8px; border-radius:4px; font-size:12px;">To-Do (5)</div>
+      <div style="opacity:0.5; font-size:12px;">Archive (12)</div>
+    </div>
+  </div>
+  <div class="mockup-body">
+    <div class="section">
+      <p><strong>新交互流程：</strong></p>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+        <div style="width:16px; height:16px; border:1px solid #fff; border-radius:2px;"></div>
+        <div style="flex:1; opacity:0.8;">购买咖啡豆</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-top:10px; color:#4facfe;">
+        <div style="width:16px; height:16px; border:1px solid #4facfe; border-radius:2px; display:flex; align-items:center; justify-content:center;">✓</div>
+        <div style="flex:1; text-decoration:line-through; opacity:0.5;">[移动中...] 完成技术栈调研</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>数据流转设计</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">待办 (todos.json)</div>
+      <div class="mockup-body">
+        <ul>
+          <li>未完成任务 A</li>
+          <li>未完成任务 B</li>
+        </ul>
+        <p><small>勾选完成 → 自动删除并写入归档</small></p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">归档 (archive.json)</div>
+      <div class="mockup-body">
+        <ul>
+          <li>已完成任务 C (10:30)</li>
+          <li>已完成任务 D (昨日)</li>
+        </ul>
+        <p><small>点击恢复 → 自动删除并回到待办</small></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>优势</h4>
+    <ul>
+      <li><strong>主列表极简:</strong> 永远只显示需要做的事情。</li>
+      <li><strong>数据隔离:</strong> 即使归档几千条数据，也不会影响主列表的加载速度。</li>
+      <li><strong>误操作可恢复:</strong> 归档不是删除，随时可以找回。</li>
+    </ul>
+  </div>
+</div>
+
+<p>请点击下方按钮确认您的偏好，或在终端回复。</p>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>批准方案</h3>
+      <p>方案很棒，请开始编写设计文档并实施。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="revise" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>需要微调</h3>
+      <p>我还有一些细节想修改。</p>
+    </div>
+  </div>
+</div>

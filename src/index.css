@@ -1,0 +1,345 @@
+:root {
+  --bg-opacity: 0.6;
+  --font-size: 14px;
+  --theme-color: rgba(30, 30, 40, var(--bg-opacity));
+  --text-color: #ededed;
+  --border-radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: transparent !important;
+  color: var(--text-color);
+  font-size: var(--font-size);
+  overflow: hidden; /* Hide scrollbars for the widget */
+  user-select: none; /* Prevent text selection */
+  height: 100vh;
+  width: 100vw;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+  padding: 8px;
+}
+
+/* The actual widget container */
+.widget-container {
+  background: var(--theme-color);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--border-radius);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: background-color 0.3s;
+}
+
+/* Header and Tabs layout */
+.header-tabs-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: move;
+}
+
+/* Action Icon Buttons */
+.header-icons {
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag; /* Buttons should not be draggable */
+  position: relative;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: #a0a0a0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 4px;
+  transition: all 0.2s;
+}
+
+.icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.icon-btn.active {
+  color: #4facfe;
+}
+
+/* Dropdown Menu */
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: rgba(40, 40, 50, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 140px;
+}
+
+.dropdown-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ededed;
+}
+
+.dropdown-item:hover {
+  background: #4facfe;
+  color: #fff;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 16px;
+  -webkit-app-region: no-drag;
+}
+
+.tab {
+  padding: 8px 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: #a0a0a0;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: #fff;
+}
+
+.tab.active {
+  color: #4facfe;
+  border-bottom-color: #4facfe;
+}
+
+/* List Area */
+.todo-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  -webkit-app-region: no-drag;
+}
+
+/* Task Status Colors */
+.todo-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s;
+  overflow: hidden;
+  border-left: 4px solid transparent; /* Base for status colors */
+}
+
+.todo-item.overdue { border-left-color: #ff4d4f; }
+.todo-item.urgent { border-left-color: #faad14; }
+.todo-item.upcoming { border-left-color: #1890ff; }
+
+/* Archive Grouping */
+.archive-group-header {
+  font-size: 0.75em;
+  font-weight: bold;
+  color: #888;
+  padding: 8px 4px 4px 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.load-more-btn {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  color: #4facfe;
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: background 0.2s;
+}
+
+.load-more-btn:hover {
+  background: rgba(79, 172, 254, 0.1);
+}
+
+.todo-deadline {
+  font-size: 0.75em;
+  color: #888;
+  margin-left: auto;
+}
+
+.todo-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.todo-item.completed span {
+  text-decoration: line-through;
+  color: #888;
+}
+
+.todo-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pin-indicator {
+  color: #ff9800;
+  display: flex;
+  align-items: center;
+}
+
+/* Add Item Input */
+.add-input-container {
+  padding: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.add-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: var(--font-size);
+  outline: none;
+}
+
+.add-input:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Modal overlays (Settings & Details) */
+.modal-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: var(--border-radius);
+  -webkit-app-region: no-drag;
+}
+
+.modal-content {
+  background: #252530;
+  width: 85%;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-weight: bold;
+}
+
+.settings-row {
+  margin-bottom: 12px;
+}
+.settings-row label {
+  display: block;
+  font-size: 0.9em;
+  margin-bottom: 6px;
+  color: #ccc;
+}
+.settings-row input[type="range"] {
+  width: 100%;
+}
+
+.details-textarea {
+  width: 100%;
+  height: 100px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #fff;
+  padding: 8px;
+  border-radius: 6px;
+  resize: none;
+  font-family: inherit;
+}
+
+.btn {
+  background: #4facfe;
+  color: #fff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+  float: right;
+}
+
+/* Context Menu HTML Native-like */
+.context-menu {
+  position: fixed;
+  background: rgba(40, 40, 50, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 1000;
+  min-width: 120px;
+  -webkit-app-region: no-drag;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-menu-item:hover {
+  background: #4facfe;
+  color: #fff;
+}
+
+.context-menu-item.danger:hover {
+  background: #ff4757;
+}
+
+/* Toggle Drag State visually */
+.widget-container.locked .header-tabs-container {
+  cursor: default;
+}
+
