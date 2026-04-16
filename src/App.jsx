@@ -61,6 +61,8 @@ export default function App() {
   useEffect(() => {
     if (isReady) {
       document.documentElement.style.setProperty('--bg-opacity', settings.opacity);
+      const modalOpacity = Math.min(1.0, settings.opacity + 0.05);
+      document.documentElement.style.setProperty('--modal-bg-opacity', modalOpacity);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
       invoke('save_settings', { settings: { ...settings, alwaysOnTop } });
     }
@@ -225,15 +227,15 @@ export default function App() {
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
           <div className={`tab ${activeTab === 'todo' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActiveTab('todo'); }}>
-            <ClipboardList size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> TO-DO
+            <ClipboardList size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> 待办
           </div>
           <div className={`tab ${activeTab === 'archive' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActiveTab('archive'); }}>
-            <History size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> Archive
+            <History size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> 归档
           </div>
         </div>
 
         <div className="header-icons" onPointerDown={(e) => e.stopPropagation()}>
-          <button className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} title="Menu">
+          <button className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} title="菜单">
             <MoreVertical size={16} />
           </button>
           
@@ -299,7 +301,7 @@ export default function App() {
           <input 
             type="text" 
             className="add-input" 
-            placeholder="Add a new task..." 
+            placeholder="添加待办" 
             value={newTaskTitle}
             onChange={(e) => setNewTaskTitle(e.target.value)}
           />
@@ -311,17 +313,17 @@ export default function App() {
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="modal-header">
-              <span>Task Details</span>
+              <span>待办详情</span>
               <button className="icon-btn" onClick={() => setDetailsModal({ open: false, task: null })}><X size={16}/></button>
             </div>
             <textarea 
               className="details-textarea"
               defaultValue={detailsModal.task.details}
               id="details-text"
-              placeholder="Add details..."
+              placeholder="添加详细描述..."
             />
             <div className="settings-row" style={{ marginTop: 12 }}>
-              <label>Deadline (截止日期)</label>
+              <label>截止日期 (年/月/日)</label>
               <input 
                 type="date" 
                 id="details-deadline" 
@@ -333,7 +335,7 @@ export default function App() {
               document.getElementById('details-text').value,
               document.getElementById('details-deadline').value
             )}>
-              Save
+              保存
             </button>
           </div>
         </div>
@@ -344,11 +346,11 @@ export default function App() {
         <div className="modal-overlay">
           <div className="modal-content">
             <div className="modal-header">
-              <span>Settings</span>
+              <span>设置</span>
               <button className="icon-btn" onClick={() => setSettingsModal(false)}><X size={16}/></button>
             </div>
             <div className="settings-row">
-              <label>Opacity (透明度): {settings.opacity.toFixed(1)}</label>
+              <label>不透明度: {settings.opacity.toFixed(1)}</label>
               <input 
                 type="range" min="0.1" max="1" step="0.1" 
                 value={settings.opacity} 
@@ -356,14 +358,14 @@ export default function App() {
               />
             </div>
             <div className="settings-row">
-              <label>Font Size (文字大小): {settings.fontSize}px</label>
+              <label>文字大小: {settings.fontSize}px</label>
               <input 
                 type="range" min="10" max="24" step="1" 
                 value={settings.fontSize} 
                 onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) })}
               />
             </div>
-            <button className="btn" onClick={() => setSettingsModal(false)}>Close</button>
+            <button className="btn" onClick={() => setSettingsModal(false)}>关闭</button>
           </div>
         </div>
       )}
@@ -377,19 +379,19 @@ export default function App() {
           {activeTab === 'todo' ? (
             <>
               <div className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
-                <Check size={14} /> Complete & Archive (完成)
+                <Check size={14} /> 完成并归档
               </div>
               <div className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}>
-                <ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? 'Unpin' : 'Pin to Top (置顶)'}
+                <ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}
               </div>
             </>
           ) : (
             <div className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}>
-              <Plus size={14} /> Restore to Todo (恢复)
+              <Plus size={14} /> 恢复到待办
             </div>
           )}
           <div className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}>
-            <Trash2 size={14} /> Delete (删除)
+            <Trash2 size={14} /> 删除待办
           </div>
         </div>
       )}

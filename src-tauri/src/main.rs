@@ -194,37 +194,25 @@ fn main() {
                 if let tauri::WindowEvent::Moved(pos) = event {
                     let win = window_handle.clone();
                     if let Ok(Some(monitor)) = win.current_monitor() {
-                        let area = monitor.runnable_area();
-                        let outer_size = win.outer_size().unwrap_or_default();
-                        
+                        let area = monitor.work_area();
+                        let size = win.inner_size().unwrap_or_default();
                         let mut new_x = pos.x;
                         let mut new_y = pos.y;
-                        let snap_dist = 20; // Snapping threshold in pixels
-                        let mut should_snap = false;
+                        let edge_correction = 0; // 由于 CSS margin 已移除，先回归 0 观察基准
+                        let mut should_reposition = false;
 
-                        // Snap to Left
-                        if (pos.x - area.position.x).abs() < snap_dist {
-                            new_x = area.position.x;
-                            should_snap = true;
-                        }
-                        // Snap to Right
-                        else if (pos.x + outer_size.width as i32 - (area.position.x + area.size.width as i32)).abs() < snap_dist {
-                            new_x = area.position.x + area.size.width as i32 - outer_size.width as i32;
-                            should_snap = true;
-                        }
+                        // 强制限制逻辑（禁止超出屏幕，使用基准 0 偏移）
+                        let min_x = area.position.x - edge_correction;
+                        let max_x = area.position.x + area.size.width as i32 + edge_correction - size.width as i32;
+                        let min_y = area.position.y - edge_correction;
+                        let max_y = area.position.y + area.size.height as i32 + edge_correction - size.height as i32;
 
-                        // Snap to Top
-                        if (pos.y - area.position.y).abs() < snap_dist {
-                            new_y = area.position.y;
-                            should_snap = true;
-                        }
-                        // Snap to Bottom
-                        else if (pos.y + outer_size.height as i32 - (area.position.y + area.size.height as i32)).abs() < snap_dist {
-                            new_y = area.position.y + area.size.height as i32 - outer_size.height as i32;
-                            should_snap = true;
-                        }
+                        if new_x < min_x { new_x = min_x; should_reposition = true; }
+                        if new_x > max_x { new_x = max_x; should_reposition = true; }
+                        if new_y < min_y { new_y = min_y; should_reposition = true; }
+                        if new_y > max_y { new_y = max_y; should_reposition = true; }
 
-                        if should_snap && (new_x != pos.x || new_y != pos.y) {
+                        if should_reposition && (new_x != pos.x || new_y != pos.y) {
                             let _ = win.set_position(tauri::PhysicalPosition::new(new_x, new_y));
                         }
                     }
