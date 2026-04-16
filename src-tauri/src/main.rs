@@ -188,6 +188,49 @@ fn main() {
                 apply_always_on_top(&window, true);
             }
 
+            // Desktop edge snapping logic
+            let window_handle = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::Moved(pos) = event {
+                    let win = window_handle.clone();
+                    if let Ok(Some(monitor)) = win.current_monitor() {
+                        let area = monitor.runnable_area();
+                        let outer_size = win.outer_size().unwrap_or_default();
+                        
+                        let mut new_x = pos.x;
+                        let mut new_y = pos.y;
+                        let snap_dist = 20; // Snapping threshold in pixels
+                        let mut should_snap = false;
+
+                        // Snap to Left
+                        if (pos.x - area.position.x).abs() < snap_dist {
+                            new_x = area.position.x;
+                            should_snap = true;
+                        }
+                        // Snap to Right
+                        else if (pos.x + outer_size.width as i32 - (area.position.x + area.size.width as i32)).abs() < snap_dist {
+                            new_x = area.position.x + area.size.width as i32 - outer_size.width as i32;
+                            should_snap = true;
+                        }
+
+                        // Snap to Top
+                        if (pos.y - area.position.y).abs() < snap_dist {
+                            new_y = area.position.y;
+                            should_snap = true;
+                        }
+                        // Snap to Bottom
+                        else if (pos.y + outer_size.height as i32 - (area.position.y + area.size.height as i32)).abs() < snap_dist {
+                            new_y = area.position.y + area.size.height as i32 - outer_size.height as i32;
+                            should_snap = true;
+                        }
+
+                        if should_snap && (new_x != pos.x || new_y != pos.y) {
+                            let _ = win.set_position(tauri::PhysicalPosition::new(new_x, new_y));
+                        }
+                    }
+                }
+            });
+
             // Create Tray Menu with AppHandle
             let handle = app.handle();
             let show_i = MenuItem::with_id(handle, "show", "显示小组件", true, None::<&str>)?;
