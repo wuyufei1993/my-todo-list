@@ -18,21 +18,44 @@ export default function App() {
   
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
-  const [detailsModal, setDetailsModal] = useState({ open: false, task: null });
+  const [detailsModal, setDetailsModal] = useState({ open: false, task: null, title: '', details: '', deadline: '' });
   const [settingsModal, setSettingsModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, taskId: null });
   const [isReady, setIsReady] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [isImmersive, setIsImmersive] = useState(false);
   const scrollTimer = useRef(null);
+  const immersionTimer = useRef(null);
+
+  // Reset immersion timer on activity
+  const resetImmersionTimer = () => {
+    setIsImmersive(false);
+    if (immersionTimer.current) clearTimeout(immersionTimer.current);
+    
+    // Don't start timer if any modal or menu is open
+    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen) return;
+
+    immersionTimer.current = setTimeout(() => {
+      setIsImmersive(true);
+    }, 5000); // 5 seconds of inactivity
+  };
+
+  useEffect(() => {
+    resetImmersionTimer();
+    return () => {
+      if (immersionTimer.current) clearTimeout(immersionTimer.current);
+    };
+  }, [detailsModal.open, settingsModal, contextMenu.open, menuOpen]);
 
   // Handle Scroll to show/hide scrollbar
   const handleScroll = () => {
     setIsScrolling(true);
+    resetImmersionTimer();
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
       setIsScrolling(false);
-    }, 1500); // 1.5秒后隐藏
+    }, 1500);
   };
 
   // Load Initial Data
@@ -50,10 +73,8 @@ export default function App() {
             height: settingsData.height || 500
           });
           setAlwaysOnTop(settingsData.alwaysOnTop || false);
-          // Sync Win32 Topmost
           invoke('update_always_on_top', { alwaysOnTop: settingsData.alwaysOnTop || false });
           
-          // Set initial window size
           if (settingsData.height) {
             const { LogicalSize } = await import('@tauri-apps/api/window');
             await appWindow.setSize(new LogicalSize(350, settingsData.height));
@@ -84,25 +105,20 @@ export default function App() {
     if (isReady) {
       document.documentElement.style.setProperty('--bg-opacity', settings.opacity);
       const modalOpacity = Math.min(1.0, settings.opacity + 0.05);
+      const tooltipOpacity = Math.min(1.0, settings.opacity + 0.2);
       document.documentElement.style.setProperty('--modal-bg-opacity', modalOpacity);
+      document.documentElement.style.setProperty('--tooltip-bg-opacity', tooltipOpacity);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
       invoke('save_settings', { settings: { ...settings, alwaysOnTop } });
       
-      // Update window height and lock it
       const updateSize = async () => {
         try {
           const { LogicalSize } = await import('@tauri-apps/api/window');
           const size = new LogicalSize(350, settings.height);
-          
-          // 1. 临时开启可调整大小权限
           await appWindow.setResizable(true);
-          
-          // 2. 设置大小（同时更新限制范围）
           await appWindow.setSize(size);
           await appWindow.setMinSize(size);
           await appWindow.setMaxSize(size);
-          
-          // 3. 立即关闭可调整大小权限，从而隐藏缩放指针
           await appWindow.setResizable(false);
         } catch (err) {
           console.error("Failed to set or lock window size:", err);
@@ -112,7 +128,7 @@ export default function App() {
     }
   }, [settings, alwaysOnTop, isReady]);
 
-  // Click outside to close menus and disable default context menu
+  // Click outside to close menus
   useEffect(() => {
     const handleClick = () => {
       setContextMenu({ open: false, x: 0, y: 0, taskId: null });
@@ -120,8 +136,6 @@ export default function App() {
     };
     
     const handleGlobalContextMenu = (e) => {
-      // If we are not clicking on an element that has its own context menu logic,
-      // prevent the default browser menu from showing.
       if (!e.target.closest('.todo-item')) {
         e.preventDefault();
       }
@@ -204,14 +218,29 @@ export default function App() {
     setTasks(tasks.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
   };
 
-  const saveDetails = (details, deadline) => {
-    const updatedTask = { ...detailsModal.task, details, deadline: deadline || null };
+  const openDetails = (task) => {
+    setDetailsModal({ 
+      open: true, 
+      task, 
+      title: task.title || '',
+      details: task.details || '', 
+      deadline: task.deadline || '' 
+    });
+  };
+
+  const saveDetails = () => {
+    const updatedTask = { 
+      ...detailsModal.task, 
+      title: detailsModal.title.trim() || detailsModal.task.title,
+      details: detailsModal.details, 
+      deadline: detailsModal.deadline || null 
+    };
     if (activeTab === 'todo') {
       setTasks(tasks.map(t => t.id === updatedTask.id ? updatedTask : t));
     } else {
       setArchive(archive.map(t => t.id === updatedTask.id ? updatedTask : t));
     }
-    setDetailsModal({ open: false, task: null });
+    setDetailsModal({ open: false, task: null, title: '', details: '', deadline: '' });
   };
 
   const toggleAlwaysOnTop = () => {
@@ -225,13 +254,11 @@ export default function App() {
   };
 
   const handleDrag = async (e) => {
-    // Only drag if left mouse button is pressed and not locked
     if (!locked && e.button === 0) {
       await appWindow.startDragging();
     }
   };
 
-  // Status calculation
   const getTaskStatus = (deadline) => {
     if (!deadline) return '';
     const now = new Date();
@@ -245,7 +272,6 @@ export default function App() {
     return '';
   };
 
-  // Sorting
   const sortedTasks = [...tasks].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     if (a.deadline && b.deadline) {
@@ -256,7 +282,6 @@ export default function App() {
     return b.timestamp - a.timestamp;
   });
 
-  // Archive Grouping
   const groupedArchive = archive.reduce((acc, task) => {
     const date = new Date(task.timestamp).toISOString().split('T')[0];
     if (!acc[date]) acc[date] = [];
@@ -267,36 +292,50 @@ export default function App() {
   const sortedArchiveDates = Object.keys(groupedArchive).sort().reverse();
 
   return (
-    <div className={`widget-container ${locked ? 'locked' : ''} ${contextMenu.open || detailsModal.open || settingsModal ? 'menu-active' : ''}`}>
+    <div
+      className={`widget-container ${locked ? 'locked' : ''} ${isImmersive ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen ? 'menu-active' : ''}`}
+      onMouseMove={resetImmersionTimer}
+      onMouseLeave={() => setIsImmersive(true)}
+    >
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
-          <div className={`tab ${activeTab === 'todo' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActiveTab('todo'); }}>
-            <ClipboardList size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> 待办
-          </div>
-          <div className={`tab ${activeTab === 'archive' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActiveTab('archive'); }}>
-            <History size={14} style={{ marginRight: 4, pointerEvents: 'none' }} /> 归档
-          </div>
+          <button 
+            className={`tab ${activeTab === 'todo' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('todo')}
+          >
+            <ClipboardList size={14} style={{ marginRight: 4 }} /> 待办
+          </button>
+          <button 
+            className={`tab ${activeTab === 'archive' ? 'active' : ''}`} 
+            onClick={() => setActiveTab('archive')}
+          >
+            <History size={14} style={{ marginRight: 4 }} /> 归档
+          </button>
         </div>
 
         <div className="header-icons" onPointerDown={(e) => e.stopPropagation()}>
-          <button className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} title="菜单">
+          <button 
+            className={`icon-btn ${menuOpen ? 'active' : ''}`} 
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} 
+            title="菜单"
+          >
             <MoreVertical size={16} />
           </button>
           
           {menuOpen && (
             <div className="dropdown-menu">
-              <div className="dropdown-item" onClick={() => { toggleAlwaysOnTop(); setMenuOpen(false); }}>
+              <button className="dropdown-item" onClick={() => { toggleAlwaysOnTop(); setMenuOpen(false); }}>
                 {alwaysOnTop ? <PinOff size={14}/> : <Pin size={14}/>} {alwaysOnTop ? '取消置顶' : '置顶窗口'}
-              </div>
-              <div className="dropdown-item" onClick={() => { setLocked(!locked); setMenuOpen(false); }}>
+              </button>
+              <button className="dropdown-item" onClick={() => { setLocked(!locked); setMenuOpen(false); }}>
                 {locked ? <Unlock size={14}/> : <Lock size={14}/>} {locked ? '解锁位置' : '锁定位置'}
-              </div>
-              <div className="dropdown-item" onClick={() => { setSettingsModal(true); setMenuOpen(false); }}>
+              </button>
+              <button className="dropdown-item" onClick={() => { setSettingsModal(true); setMenuOpen(false); }}>
                 <Settings size={14}/> 设置
-              </div>
-              <div className="dropdown-item" onClick={() => { handleClose(); setMenuOpen(false); }}>
+              </button>
+              <button className="dropdown-item" onClick={() => { handleClose(); setMenuOpen(false); }}>
                 <X size={14}/> 隐藏到托盘
-              </div>
+              </button>
             </div>
           )}
         </div>
@@ -308,7 +347,7 @@ export default function App() {
             <div 
               key={task.id} 
               className={`todo-item ${getTaskStatus(task.deadline)}`}
-              onDoubleClick={() => setDetailsModal({ open: true, task })}
+              onDoubleClick={() => openDetails(task)}
               onContextMenu={(e) => handleContextMenu(e, task.id)}
             >
               {task.pinned && <div className="pin-indicator"><ArrowUpToLine size={14} /></div>}
@@ -331,7 +370,7 @@ export default function App() {
                   <div 
                     key={task.id} 
                     className="todo-item"
-                    onDoubleClick={() => setDetailsModal({ open: true, task })}
+                    onDoubleClick={() => openDetails(task)}
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     <div className="todo-title" style={{ opacity: 0.7 }}>{task.title}</div>
@@ -379,27 +418,31 @@ export default function App() {
           <div className="modal-content">
             <div className="modal-header">
               <span>待办详情</span>
-              <button className="icon-btn" onClick={() => setDetailsModal({ open: false, task: null })}><X size={16}/></button>
+              <button className="icon-btn" onClick={() => setDetailsModal({ open: false, task: null, title: '', details: '', deadline: '' })}><X size={16}/></button>
             </div>
+            <input 
+              type="text"
+              className="details-title-input"
+              value={detailsModal.title}
+              onChange={(e) => setDetailsModal({ ...detailsModal, title: e.target.value })}
+              placeholder="任务标题"
+            />
             <textarea 
               className="details-textarea"
-              defaultValue={detailsModal.task.details}
-              id="details-text"
+              value={detailsModal.details}
+              onChange={(e) => setDetailsModal({ ...detailsModal, details: e.target.value })}
               placeholder="添加详细描述..."
             />
             <div className="settings-row" style={{ marginTop: 12 }}>
               <label>截止日期 (年/月/日)</label>
               <input 
                 type="date" 
-                id="details-deadline" 
-                defaultValue={detailsModal.task.deadline}
+                value={detailsModal.deadline}
+                onChange={(e) => setDetailsModal({ ...detailsModal, deadline: e.target.value })}
                 style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: 6, borderRadius: 4 }}
               />
             </div>
-            <button className="btn" onClick={() => saveDetails(
-              document.getElementById('details-text').value,
-              document.getElementById('details-deadline').value
-            )}>
+            <button className="btn" onClick={saveDetails}>
               保存
             </button>
           </div>
@@ -451,21 +494,21 @@ export default function App() {
         >
           {activeTab === 'todo' ? (
             <>
-              <div className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
+              <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
                 <Check size={14} /> 完成并归档
-              </div>
-              <div className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}>
+              </button>
+              <button className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}>
                 <ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}
-              </div>
+              </button>
             </>
           ) : (
-            <div className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}>
+            <button className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}>
               <Plus size={14} /> 恢复到待办
-            </div>
+            </button>
           )}
-          <div className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}>
+          <button className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}>
             <Trash2 size={14} /> 删除待办
-          </div>
+          </button>
         </div>
       )}
     </div>

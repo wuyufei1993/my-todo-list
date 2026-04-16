@@ -4,6 +4,11 @@
   --theme-color: rgba(30, 30, 40, var(--bg-opacity));
   --text-color: #ededed;
   --border-radius: 12px;
+  --accent-color: #4facfe;
+  --urgent-color: #faad14;
+  --upcoming-color: #1890ff;
+  --overdue-color: #ff4757;
+  --pinned-color: #ff9800;
 }
 
 * {
@@ -61,8 +66,8 @@ body {
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
   border-radius: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.2);
+  border: none; /* 移除四周边框 */
+  box-shadow: none; /* 移除内阴影渐变 */
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -79,6 +84,19 @@ body {
   padding: 12px 16px 4px 16px;
   background: rgba(0, 0, 0, 0.15);
   cursor: move;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 60px;
+  position: relative;
+  z-index: 10; /* 确保 header 在列表上方 */
+}
+
+.widget-container.immersive .header-tabs-container {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden; /* 仅在沉浸模式折叠时剪裁 */
 }
 
 /* Action Icon Buttons */
@@ -108,7 +126,7 @@ body {
 }
 
 .icon-btn.active {
-  color: #4facfe;
+  color: var(--accent-color);
 }
 
 /* Dropdown Menu */
@@ -128,6 +146,9 @@ body {
 }
 
 .dropdown-item {
+  width: 100%;
+  border: none;
+  background: transparent;
   padding: 8px 16px;
   cursor: pointer;
   font-size: 0.9em;
@@ -135,10 +156,12 @@ body {
   align-items: center;
   gap: 8px;
   color: #ededed;
+  text-align: left;
+  font-family: inherit;
 }
 
 .dropdown-item:hover {
-  background: #4facfe;
+  background: var(--accent-color);
   color: #fff;
 }
 
@@ -150,6 +173,8 @@ body {
 }
 
 .tab {
+  background: transparent;
+  border: none;
   padding: 6px 0;
   cursor: pointer;
   font-size: 0.95em;
@@ -157,6 +182,7 @@ body {
   color: #909090;
   position: relative;
   transition: all 0.2s;
+  font-family: inherit;
 }
 
 .tab:hover {
@@ -164,7 +190,7 @@ body {
 }
 
 .tab.active {
-  color: #4facfe;
+  color: var(--accent-color);
 }
 
 .tab.active::after {
@@ -174,7 +200,7 @@ body {
   left: 0;
   right: 0;
   height: 2px;
-  background: #4facfe;
+  background: var(--accent-color);
   border-radius: 2px;
   box-shadow: 0 0 8px rgba(79, 172, 254, 0.5);
 }
@@ -183,22 +209,22 @@ body {
 .todo-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 10px;
+  padding: 12px 10px 40px 10px;
   -webkit-app-region: no-drag;
 }
 
 /* Task Status Colors */
 .todo-item {
-  padding: 12px 14px;
+  padding: 8px 14px;
   border-radius: 10px;
-  margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid rgba(255, 255, 255, 0.02);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none; /* 移除四周边框 */
   border-left: 4px solid transparent;
   position: relative;
 }
@@ -209,25 +235,31 @@ body {
   position: absolute;
   left: 10px;
   right: 10px;
-  top: 100%;
-  background: rgba(40, 40, 50, 0.98);
-  backdrop-filter: blur(15px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  padding: 10px;
+  top: calc(100% + 6px);
+  background: rgb(30 30 40 / var(--tooltip-bg-opacity, 0.9)); /* 使用现代语法确保变量生效 */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px;
   z-index: 2000;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  transition: all 0.2s ease;
-  transform: translateY(5px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(4px);
+  max-height: 200px;
+  overflow-y: auto;
 }
 
-.todo-item:not(.menu-active *) .todo-tooltip {
-  /* This is just a backup, let's use the explicit container class for more reliability */
+/* 自动翻转逻辑：最后两个任务的详情向上弹出，但排除前两项以防撞到顶部 header */
+.todo-item:nth-last-child(-n+2):nth-child(n+3) .todo-tooltip {
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform: translateY(-4px);
 }
 
-.widget-container.menu-active .todo-tooltip {
-  display: none !important;
+.todo-item:nth-last-child(-n+2):nth-child(n+3):hover .todo-tooltip {
+  transform: translateY(0);
 }
 
 .todo-item:hover .todo-tooltip {
@@ -238,22 +270,61 @@ body {
 
 .tooltip-title {
   font-weight: bold;
-  font-size: 0.9em;
-  margin-bottom: 4px;
-  color: #4facfe;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 4px;
+  font-size: 0.92em;
+  margin-bottom: 6px;
+  color: var(--accent-color);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 极淡的分隔线 */
+  padding-bottom: 6px;
 }
 
 .tooltip-content {
   font-size: 0.85em;
-  color: #ccc;
+  color: rgba(237, 237, 237, 0.85); /* 稍微降低正文亮度，突出标题 */
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.todo-item.urgent { border-left-color: #faad14; }
-.todo-item.upcoming { border-left-color: #1890ff; }
+.todo-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(2px);
+  z-index: 100;
+}
+
+/* Status based backgrounds */
+.todo-item.overdue { 
+  background: rgba(255, 71, 87, 0.08); 
+  border-left-color: var(--overdue-color); 
+}
+.todo-item.urgent { 
+  background: rgba(250, 173, 20, 0.08); 
+  border-left-color: var(--urgent-color); 
+}
+.todo-item.upcoming { 
+  background: rgba(24, 144, 255, 0.08); 
+  border-left-color: var(--upcoming-color); 
+}
+
+/* Immersive mode refinements */
+.widget-container.immersive .todo-item {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 4px;
+  padding: 10px 16px;
+}
+
+.widget-container.immersive .todo-item.overdue { 
+  background: rgba(255, 71, 87, 0.15); 
+  box-shadow: 0 0 15px rgba(255, 71, 87, 0.1);
+}
+.widget-container.immersive .todo-item.urgent { 
+  background: rgba(250, 173, 20, 0.15); 
+  box-shadow: 0 0 15px rgba(250, 173, 20, 0.1);
+}
+.widget-container.immersive .todo-item.upcoming { 
+  background: rgba(24, 144, 255, 0.15); 
+  box-shadow: 0 0 15px rgba(24, 144, 255, 0.1);
+}
 
 /* Archive Grouping */
 .archive-group-header {
@@ -270,10 +341,11 @@ body {
   padding: 12px;
   background: transparent;
   border: none;
-  color: #4facfe;
+  color: var(--accent-color);
   cursor: pointer;
   font-size: 0.85em;
   transition: background 0.2s;
+  font-family: inherit;
 }
 
 .load-more-btn:hover {
@@ -284,10 +356,6 @@ body {
   font-size: 0.75em;
   color: #888;
   margin-left: auto;
-}
-
-.todo-item:hover {
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .todo-item.completed span {
@@ -303,9 +371,18 @@ body {
 }
 
 .pin-indicator {
-  color: #ff9800;
+  color: var(--pinned-color);
   display: flex;
   align-items: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.widget-container.immersive .pin-indicator {
+  opacity: 0;
+  width: 0;
+  margin-right: -12px; /* 抵消 todo-item 的 gap */
+  overflow: hidden;
+  transform: scale(0);
 }
 
 /* Add Item Input */
@@ -313,6 +390,17 @@ body {
   padding: 12px 14px;
   background: rgba(0, 0, 0, 0.1);
   -webkit-app-region: no-drag;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 80px;
+  overflow: hidden;
+}
+
+.widget-container.immersive .add-input-container {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .add-input-wrapper {
@@ -410,14 +498,36 @@ body {
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #fff;
-  padding: 8px;
+  padding: 10px;
   border-radius: 6px;
   resize: none;
   font-family: inherit;
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+.details-title-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--accent-color);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-weight: bold;
+  font-size: 1.05em;
+  margin-bottom: 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.details-title-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--accent-color);
 }
 
 .btn {
-  background: #4facfe;
+  background: var(--accent-color);
   color: #fff;
   border: none;
   padding: 6px 12px;
@@ -425,6 +535,7 @@ body {
   cursor: pointer;
   margin-top: 10px;
   float: right;
+  font-family: inherit;
 }
 
 /* Context Menu HTML Native-like */
@@ -442,25 +553,30 @@ body {
 }
 
 .context-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
   padding: 8px 16px;
   cursor: pointer;
   font-size: 0.9em;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #ededed;
+  text-align: left;
+  font-family: inherit;
 }
 
 .context-menu-item:hover {
-  background: #4facfe;
+  background: var(--accent-color);
   color: #fff;
 }
 
 .context-menu-item.danger:hover {
-  background: #ff4757;
+  background: var(--overdue-color);
 }
 
 /* Toggle Drag State visually */
 .widget-container.locked .header-tabs-container {
   cursor: default;
 }
-
