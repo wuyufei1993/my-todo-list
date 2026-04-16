@@ -89,6 +89,8 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
             font_size: 14,
             always_on_top: false,
             height: 500,
+            x: None,
+            y: None,
         });
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -97,6 +99,8 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
         font_size: 14,
         always_on_top: false,
         height: 500,
+        x: None,
+        y: None,
     });
     Ok(settings)
 }
@@ -163,6 +167,13 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             get_tasks,
             save_tasks,
@@ -174,48 +185,81 @@ fn main() {
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-            
-            // Try initial load for always_on_top
-            if let Ok(path) = get_file_path(app.handle(), "settings.json") {
+            let handle = app.handle().clone();
+
+            // 1. 加载设置并恢复位置/置顶状态
+            let mut settings_loaded = false;
+            if let Ok(path) = get_file_path(&handle, "settings.json") {
                 if let Ok(content) = fs::read_to_string(path) {
                     if let Ok(settings) = serde_json::from_str::<Settings>(&content) {
                         apply_always_on_top(&window, settings.always_on_top);
-                    } else {
-                        apply_always_on_top(&window, true);
+                        if let (Some(x), Some(y)) = (settings.x, settings.y) {
+                            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                        } else {
+                            // 初始定位到右下角
+                            if let Ok(Some(monitor)) = window.current_monitor() {
+                                let area = monitor.work_area();
+                                let win_size = window.outer_size().unwrap_or_default();
+                                let x = area.position.x + area.size.width as i32 - win_size.width as i32;
+                                let y = area.position.y + area.size.height as i32 - win_size.height as i32;
+                                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                            }
+                        }
+                        settings_loaded = true;
                     }
-                } else {
-                    apply_always_on_top(&window, true);
                 }
-            } else {
-                apply_always_on_top(&window, true);
             }
 
-            // Desktop edge snapping logic
+            if !settings_loaded {
+                apply_always_on_top(&window, true);
+                // 默认初始定位
+                if let Ok(Some(monitor)) = window.current_monitor() {
+                    let area = monitor.work_area();
+                    let win_size = window.outer_size().unwrap_or_default();
+                    let x = area.position.x + area.size.width as i32 - win_size.width as i32;
+                    let y = area.position.y + area.size.height as i32 - win_size.height as i32;
+                    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                }
+            }
+
+            // Desktop edge snapping logic & Auto-save position
             let window_handle = window.clone();
+            let app_handle_for_event = handle.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::Moved(pos) = event {
                     let win = window_handle.clone();
+                    let mut final_x = pos.x;
+                    let mut final_y = pos.y;
+                    let mut should_reposition = false;
+
                     if let Ok(Some(monitor)) = win.current_monitor() {
                         let area = monitor.work_area();
-                        let size = win.inner_size().unwrap_or_default();
-                        let mut new_x = pos.x;
-                        let mut new_y = pos.y;
-                        let edge_correction = 0; // 由于 CSS margin 已移除，先回归 0 观察基准
-                        let mut should_reposition = false;
+                        let size = win.outer_size().unwrap_or_default();
+                        let edge_correction = 0;
 
-                        // 强制限制逻辑（禁止超出屏幕，使用基准 0 偏移）
                         let min_x = area.position.x - edge_correction;
                         let max_x = area.position.x + area.size.width as i32 + edge_correction - size.width as i32;
                         let min_y = area.position.y - edge_correction;
                         let max_y = area.position.y + area.size.height as i32 + edge_correction - size.height as i32;
 
-                        if new_x < min_x { new_x = min_x; should_reposition = true; }
-                        if new_x > max_x { new_x = max_x; should_reposition = true; }
-                        if new_y < min_y { new_y = min_y; should_reposition = true; }
-                        if new_y > max_y { new_y = max_y; should_reposition = true; }
+                        if final_x < min_x { final_x = min_x; should_reposition = true; }
+                        if final_x > max_x { final_x = max_x; should_reposition = true; }
+                        if final_y < min_y { final_y = min_y; should_reposition = true; }
+                        if final_y > max_y { final_y = max_y; should_reposition = true; }
 
-                        if should_reposition && (new_x != pos.x || new_y != pos.y) {
-                            let _ = win.set_position(tauri::PhysicalPosition::new(new_x, new_y));
+                        if should_reposition {
+                            let _ = win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
+                        }
+                    }
+
+                    // 保存位置到 settings.json
+                    if let Ok(path) = get_file_path(&app_handle_for_event, "settings.json") {
+                        if let Ok(content) = fs::read_to_string(&path) {
+                            if let Ok(mut settings) = serde_json::from_str::<Settings>(&content) {
+                                settings.x = Some(final_x);
+                                settings.y = Some(final_y);
+                                let _ = fs::write(path, serde_json::to_string(&settings).unwrap_or_default());
+                            }
                         }
                     }
                 }
@@ -238,6 +282,8 @@ fn main() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
                         }
                     }
                     "hide" => {
@@ -248,10 +294,16 @@ fn main() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
                         }
                     }
                 })

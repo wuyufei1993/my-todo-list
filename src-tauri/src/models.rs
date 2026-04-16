@@ -19,4 +19,6 @@ pub struct Settings {
     #[serde(rename = "alwaysOnTop")]
     pub always_on_top: bool,
     pub height: u32,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
 }
