@@ -17,6 +17,7 @@ export default function App() {
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [inputFocused, setInputFocused] = useState(false);
   const [detailsModal, setDetailsModal] = useState({ open: false, task: null });
   const [settingsModal, setSettingsModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -266,7 +267,7 @@ export default function App() {
   const sortedArchiveDates = Object.keys(groupedArchive).sort().reverse();
 
   return (
-    <div className={`widget-container ${locked ? 'locked' : ''}`}>
+    <div className={`widget-container ${locked ? 'locked' : ''} ${contextMenu.open || detailsModal.open || settingsModal ? 'menu-active' : ''}`}>
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
           <div className={`tab ${activeTab === 'todo' ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setActiveTab('todo'); }}>
@@ -313,6 +314,12 @@ export default function App() {
               {task.pinned && <div className="pin-indicator"><ArrowUpToLine size={14} /></div>}
               <div className="todo-title">{task.title}</div>
               {task.deadline && <div className="todo-deadline">{task.deadline.slice(5)}</div>}
+              {task.details && (
+                <div className="todo-tooltip">
+                  <div className="tooltip-title">{task.title}</div>
+                  <div className="tooltip-content">{task.details}</div>
+                </div>
+              )}
             </div>
           ))
         ) : (
@@ -328,6 +335,12 @@ export default function App() {
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     <div className="todo-title" style={{ opacity: 0.7 }}>{task.title}</div>
+                    {task.details && (
+                      <div className="todo-tooltip">
+                        <div className="tooltip-title">{task.title}</div>
+                        <div className="tooltip-content">{task.details}</div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -341,13 +354,22 @@ export default function App() {
 
       {activeTab === 'todo' && (
         <form className="add-input-container" onSubmit={addTask}>
-          <input 
-            type="text" 
-            className="add-input" 
-            placeholder="添加待办" 
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-          />
+          <div className="add-input-wrapper">
+            <input 
+              type="text" 
+              className="add-input" 
+              placeholder="添加待办" 
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setTimeout(() => setInputFocused(false), 200)}
+            />
+            {(inputFocused || newTaskTitle) && (
+              <button type="submit" className="add-confirm-btn" title="提交">
+                <Check size={18} />
+              </button>
+            )}
+          </div>
         </form>
       )}
 

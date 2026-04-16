@@ -198,15 +198,58 @@ body {
   align-items: center;
   gap: 12px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.02);
   border-left: 4px solid transparent;
+  position: relative;
 }
 
-.todo-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateX(2px);
-  border-color: rgba(255, 255, 255, 0.05);
+.todo-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 100%;
+  background: rgba(40, 40, 50, 0.98);
+  backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 2000;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  transition: all 0.2s ease;
+  transform: translateY(5px);
+}
+
+.todo-item:not(.menu-active *) .todo-tooltip {
+  /* This is just a backup, let's use the explicit container class for more reliability */
+}
+
+.widget-container.menu-active .todo-tooltip {
+  display: none !important;
+}
+
+.todo-item:hover .todo-tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tooltip-title {
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 4px;
+  color: #4facfe;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 4px;
+}
+
+.tooltip-content {
+  font-size: 0.85em;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .todo-item.urgent { border-left-color: #faad14; }
@@ -272,8 +315,14 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.add-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .add-input {
-  width: 100%;
+  flex: 1;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.05);
   color: #fff;
@@ -282,6 +331,26 @@ body {
   font-size: var(--font-size);
   outline: none;
   transition: all 0.2s;
+}
+
+.add-confirm-btn {
+  background: #4facfe;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 0 10px rgba(79, 172, 254, 0.2);
+}
+
+.add-confirm-btn:hover {
+  background: #00f2fe;
+  transform: scale(1.05);
 }
 
 .add-input:focus {
