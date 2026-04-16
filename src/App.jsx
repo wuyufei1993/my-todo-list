@@ -66,14 +66,28 @@ export default function App() {
     }
   }, [settings, alwaysOnTop, isReady]);
 
-  // Click outside to close menus
+  // Click outside to close menus and disable default context menu
   useEffect(() => {
     const handleClick = () => {
       setContextMenu({ open: false, x: 0, y: 0, taskId: null });
       setMenuOpen(false);
     };
+    
+    const handleGlobalContextMenu = (e) => {
+      // If we are not clicking on an element that has its own context menu logic,
+      // prevent the default browser menu from showing.
+      if (!e.target.closest('.todo-item')) {
+        e.preventDefault();
+      }
+    };
+
     document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
+    document.addEventListener('contextmenu', handleGlobalContextMenu);
+    
+    return () => {
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('contextmenu', handleGlobalContextMenu);
+    };
   }, []);
 
   // Add task
