@@ -88,6 +88,7 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
             opacity: 1.0,
             font_size: 14,
             always_on_top: false,
+            height: 500,
         });
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -95,6 +96,7 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
         opacity: 1.0,
         font_size: 14,
         always_on_top: false,
+        height: 500,
     });
     Ok(settings)
 }

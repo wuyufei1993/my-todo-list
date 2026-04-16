@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -12,7 +12,7 @@ export default function App() {
   const [archiveOffset, setArchiveOffset] = useState(0);
   const [activeTab, setActiveTab] = useState('todo'); // 'todo' | 'archive'
 
-  const [settings, setSettings] = useState({ opacity: 0.8, fontSize: 14 });
+  const [settings, setSettings] = useState({ opacity: 0.8, fontSize: 14, height: 500 });
   const [locked, setLocked] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   
@@ -22,6 +22,17 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, taskId: null });
   const [isReady, setIsReady] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimer = useRef(null);
+
+  // Handle Scroll to show/hide scrollbar
+  const handleScroll = () => {
+    setIsScrolling(true);
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 1500); // 1.5秒后隐藏
+  };
 
   // Load Initial Data
   useEffect(() => {
@@ -32,10 +43,20 @@ export default function App() {
 
         const settingsData = await invoke('get_settings');
         if (settingsData) {
-          setSettings({ opacity: settingsData.opacity || 0.8, fontSize: settingsData.fontSize || 14 });
+          setSettings({ 
+            opacity: settingsData.opacity || 0.8, 
+            fontSize: settingsData.fontSize || 14,
+            height: settingsData.height || 500
+          });
           setAlwaysOnTop(settingsData.alwaysOnTop || false);
           // Sync Win32 Topmost
           invoke('update_always_on_top', { alwaysOnTop: settingsData.alwaysOnTop || false });
+          
+          // Set initial window size
+          if (settingsData.height) {
+            const { LogicalSize } = await import('@tauri-apps/api/window');
+            await appWindow.setSize(new LogicalSize(350, settingsData.height));
+          }
         }
 
         const archiveData = await invoke('get_archive', { offsetMonths: 0 });
@@ -65,6 +86,28 @@ export default function App() {
       document.documentElement.style.setProperty('--modal-bg-opacity', modalOpacity);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
       invoke('save_settings', { settings: { ...settings, alwaysOnTop } });
+      
+      // Update window height and lock it
+      const updateSize = async () => {
+        try {
+          const { LogicalSize } = await import('@tauri-apps/api/window');
+          const size = new LogicalSize(350, settings.height);
+          
+          // 1. 临时开启可调整大小权限
+          await appWindow.setResizable(true);
+          
+          // 2. 设置大小（同时更新限制范围）
+          await appWindow.setSize(size);
+          await appWindow.setMinSize(size);
+          await appWindow.setMaxSize(size);
+          
+          // 3. 立即关闭可调整大小权限，从而隐藏缩放指针
+          await appWindow.setResizable(false);
+        } catch (err) {
+          console.error("Failed to set or lock window size:", err);
+        }
+      };
+      updateSize();
     }
   }, [settings, alwaysOnTop, isReady]);
 
@@ -258,7 +301,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="todo-list">
+      <div className={`todo-list ${isScrolling ? 'scrolling' : ''}`} onScroll={handleScroll}>
         {activeTab === 'todo' ? (
           sortedTasks.map(task => (
             <div 
@@ -363,6 +406,14 @@ export default function App() {
                 type="range" min="10" max="24" step="1" 
                 value={settings.fontSize} 
                 onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) })}
+              />
+            </div>
+            <div className="settings-row">
+              <label>小组件高度: {settings.height}px</label>
+              <input 
+                type="range" min="300" max="800" step="10" 
+                value={settings.height} 
+                onChange={(e) => setSettings({ ...settings, height: parseInt(e.target.value) })}
               />
             </div>
             <button className="btn" onClick={() => setSettingsModal(false)}>关闭</button>

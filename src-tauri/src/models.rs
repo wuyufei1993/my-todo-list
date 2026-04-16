@@ -18,4 +18,5 @@ pub struct Settings {
     pub font_size: u32,
     #[serde(rename = "alwaysOnTop")]
     pub always_on_top: bool,
+    pub height: u32,
 }
