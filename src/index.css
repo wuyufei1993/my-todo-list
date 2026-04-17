@@ -1,5 +1,5 @@
 :root {
-  --bg-opacity: 0.6;
+  --bg-opacity: 0.4;
   --font-size: 14px;
   --theme-color: rgba(30, 30, 40, var(--bg-opacity));
   --text-color: #ededed;

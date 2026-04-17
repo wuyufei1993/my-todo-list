@@ -362,20 +362,20 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
     let path = get_file_path(&app_handle, "settings.json")?;
     if !path.exists() {
         return Ok(Settings {
-            opacity: 1.0,
+            opacity: 0.4,
             font_size: 14,
             always_on_top: false,
-            height: 500,
+            height: 400,
             x: None,
             y: None,
         });
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let settings: Settings = serde_json::from_str(&content).unwrap_or_else(|_| Settings {
-        opacity: 1.0,
+        opacity: 0.4,
         font_size: 14,
         always_on_top: false,
-        height: 500,
+        height: 400,
         x: None,
         y: None,
     });

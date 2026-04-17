@@ -2,19 +2,19 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "my-todo-list",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.mytodo.widget",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:frontend"
   },
   "app": {
     "windows": [
       {
         "title": "Todo Widget",
         "width": 350,
-        "height": 500,
+        "height": 400,
         "resizable": false,
         "fullscreen": false,
         "transparent": true,

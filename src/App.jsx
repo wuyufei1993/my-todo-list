@@ -13,7 +13,7 @@ export default function App() {
   const [archiveOffset, setArchiveOffset] = useState(0);
   const [activeTab, setActiveTab] = useState('todo'); // 'todo' | 'archive'
 
-  const [settings, setSettings] = useState({ opacity: 0.8, fontSize: 14, height: 500 });
+  const [settings, setSettings] = useState({ opacity: 0.4, fontSize: 14, height: 400 });
   const [locked, setLocked] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   
@@ -82,6 +82,10 @@ export default function App() {
     
     // 如果有弹窗或菜单开启，不启动计时器
     if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) return;
+
+    // 如果当前列表为空，不进入沉浸模式，避免找不到小组件
+    const isEmpty = activeTab === 'todo' ? tasks.length === 0 : archive.length === 0;
+    if (isEmpty) return;
 
     immersionTimer.current = setTimeout(() => {
       setIsImmersive(true);
