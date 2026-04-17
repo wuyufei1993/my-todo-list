@@ -16,23 +16,225 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::HWND;
+use windows::core::w;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{BOOL, HWND, LPARAM, LRESULT, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetParent, SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_FRAMECHANGED,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE,
+    EnumWindows, FindWindowExW, FindWindowW, GetClassNameW, GetWindowLongW, SendMessageTimeoutW,
+    SetParent, SetWindowLongW, SetWindowPos, GWL_STYLE, HWND_NOTOPMOST, HWND_TOPMOST, SMTO_NORMAL,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, WS_CAPTION, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
+
+/// 窗口子类回调：拦截样式变更和非客户区绘制，防止 Win+D 等系统操作重新添加窗口边框和标题栏
+#[cfg(target_os = "windows")]
+const WM_STYLECHANGING: u32 = 0x007C;
+#[cfg(target_os = "windows")]
+const WM_STYLECHANGED: u32 = 0x007D;
+#[cfg(target_os = "windows")]
+const WM_NCCALCSIZE: u32 = 0x0083;
+#[cfg(target_os = "windows")]
+const WM_NCPAINT: u32 = 0x0085;
+#[cfg(target_os = "windows")]
+const WM_NCACTIVATE: u32 = 0x0086;
+#[cfg(target_os = "windows")]
+const WM_MOVING: u32 = 0x0216;
+
+#[cfg(target_os = "windows")]
+const DECORATION_GUARD_ID: usize = 1;
+#[cfg(target_os = "windows")]
+const EDGE_CLAMP_ID: usize = 2;
+
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct StyleStruct {
+    _style_old: u32,
+    style_new: u32,
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn decoration_guard_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _uid_subclass: usize,
+    _dw_ref_data: usize,
+) -> LRESULT {
+    match msg {
+        WM_STYLECHANGING => {
+            let ss = &mut *(lparam.0 as *mut StyleStruct);
+            if wparam.0 as i32 == GWL_STYLE.0 {
+                // 剥离所有装饰样式位，保持无边框
+                ss.style_new &= !(WS_CAPTION.0
+                    | WS_THICKFRAME.0
+                    | WS_SYSMENU.0
+                    | WS_MAXIMIZEBOX.0
+                    | WS_MINIMIZEBOX.0);
+            } else if wparam.0 as i32 == windows::Win32::UI::WindowsAndMessaging::GWL_EXSTYLE.0 {
+                // 剥离扩展边框样式
+                ss.style_new &= !(windows::Win32::UI::WindowsAndMessaging::WS_EX_WINDOWEDGE.0
+                    | windows::Win32::UI::WindowsAndMessaging::WS_EX_CLIENTEDGE.0
+                    | windows::Win32::UI::WindowsAndMessaging::WS_EX_STATICEDGE.0
+                    | windows::Win32::UI::WindowsAndMessaging::WS_EX_DLGMODALFRAME.0);
+            }
+            DefSubclassProc(hwnd, msg, wparam, lparam)
+        }
+        WM_STYLECHANGED => {
+            // 样式已被修改后的补救：强制再次剥离装饰位
+            if wparam.0 as i32 == GWL_STYLE.0 {
+                let current = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+                let stripped = current
+                    & !(WS_CAPTION.0
+                        | WS_THICKFRAME.0
+                        | WS_SYSMENU.0
+                        | WS_MAXIMIZEBOX.0
+                        | WS_MINIMIZEBOX.0);
+                if stripped != current {
+                    SetWindowLongW(hwnd, GWL_STYLE, stripped as i32);
+                }
+            }
+            DefSubclassProc(hwnd, msg, wparam, lparam)
+        }
+        WM_NCCALCSIZE => {
+            // 彻底消除标题栏和非客户区空间
+            return LRESULT(0);
+        }
+        WM_NCPAINT => {
+            // 跳过所有非客户区绘制，防止标题栏被画出来
+            return LRESULT(0);
+        }
+        WM_NCACTIVATE => {
+            // 阻止激活/失焦时的非客户区重绘（标题栏闪现的直接原因）
+            return LRESULT(1);
+        }
+        _ => DefSubclassProc(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// 窗口子类回调：在窗口移动前拦截 WM_MOVING，将目标位置限制在屏幕工作区内，消除拖拽到边缘时的闪烁
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn edge_clamp_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _uid_subclass: usize,
+    _dw_ref_data: usize,
+) -> LRESULT {
+    if msg == WM_MOVING {
+        use windows::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+
+        let rect = &mut *(lparam.0 as *mut windows::Win32::Foundation::RECT);
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+
+        if GetMonitorInfoW(monitor, &mut mi as *mut _).as_bool() {
+            let work = mi.rcWork;
+            let w = rect.right - rect.left;
+            let h = rect.bottom - rect.top;
+
+            if rect.left < work.left {
+                rect.left = work.left;
+                rect.right = work.left + w;
+            }
+            if rect.top < work.top {
+                rect.top = work.top;
+                rect.bottom = work.top + h;
+            }
+            if rect.right > work.right {
+                rect.right = work.right;
+                rect.left = work.right - w;
+            }
+            if rect.bottom > work.bottom {
+                rect.bottom = work.bottom;
+                rect.top = work.bottom - h;
+            }
+        }
+        return LRESULT(1);
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn find_desktop_worker_window() -> Option<HWND> {
+    // Force Progman to create WorkerW if it hasn't already
+    unsafe {
+        if let Ok(progman) = FindWindowW(w!("Progman"), None) {
+            let _ = SendMessageTimeoutW(
+                progman,
+                0x052C,
+                windows::Win32::Foundation::WPARAM(0),
+                LPARAM(0),
+                SMTO_NORMAL,
+                1000,
+                None,
+            );
+        }
+    }
+
+    struct State {
+        worker: Option<HWND>,
+    }
+    let mut state = State { worker: None };
+
+    unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let state = &mut *(lparam.0 as *mut State);
+
+        let mut class_name = [0u16; 256];
+        GetClassNameW(hwnd, &mut class_name);
+
+        let class_name_str = String::from_utf16_lossy(&class_name);
+        let class_name_str = class_name_str.trim_end_matches('\0');
+
+        if class_name_str != "Progman" && class_name_str != "WorkerW" {
+            // if class_name_str != "Progman" { return BOOL(1); }
+            return BOOL(1);
+        }
+
+        let def_view = FindWindowExW(hwnd, None, w!("SHELLDLL_DefView"), None);
+        if def_view.is_ok() {
+            if class_name_str == "WorkerW" {
+                state.worker = Some(hwnd);
+                println!("find_desktop_worker_window selected WorkerW from EnumWindows");
+            } else {
+                state.worker = Some(hwnd);
+                println!("find_desktop_worker_window selected Progman from EnumWindows");
+            }
+        }
+        BOOL(1)
+    }
+
+    unsafe {
+        let _ = EnumWindows(
+            Some(enum_windows_callback),
+            LPARAM(&mut state as *mut State as isize),
+        );
+    }
+
+    if state.worker.is_none() {
+        println!("attach aborted: no worker window");
+    }
+
+    state.worker
+}
 
 fn get_file_path(app_handle: &AppHandle, filename: &str) -> Result<PathBuf, String> {
     let mut path = app_handle
         .path()
         .resolve("", BaseDirectory::AppData)
         .map_err(|e| e.to_string())?;
-    
+
     if !path.exists() {
         fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     }
-    
+
     path.push(filename);
     Ok(path)
 }
@@ -40,7 +242,7 @@ fn get_file_path(app_handle: &AppHandle, filename: &str) -> Result<PathBuf, Stri
 #[tauri::command]
 async fn export_data(app_handle: AppHandle) -> Result<String, String> {
     let tasks = get_tasks(app_handle.clone())?;
-    
+
     // Get all archive
     let archive_path = get_file_path(&app_handle, "archive.json")?;
     let archive = if archive_path.exists() {
@@ -49,9 +251,9 @@ async fn export_data(app_handle: AppHandle) -> Result<String, String> {
     } else {
         Vec::new()
     };
-    
+
     let settings = get_settings(app_handle.clone())?;
-    
+
     let backup = BackupData {
         tasks,
         archive,
@@ -62,15 +264,16 @@ async fn export_data(app_handle: AppHandle) -> Result<String, String> {
             .map_err(|e| e.to_string())?
             .as_millis() as i64,
     };
-    
+
     let json = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
-    
-    let file_path = app_handle.dialog()
+
+    let file_path = app_handle
+        .dialog()
         .file()
         .add_filter("JSON", &["json"])
         .set_file_name("todo_backup.json")
         .blocking_save_file();
-        
+
     if let Some(path) = file_path {
         let path = path.into_path().map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())?;
@@ -82,25 +285,27 @@ async fn export_data(app_handle: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn import_data(app_handle: AppHandle) -> Result<String, String> {
-    let file_path = app_handle.dialog()
+    let file_path = app_handle
+        .dialog()
         .file()
         .add_filter("JSON", &["json"])
         .blocking_pick_file();
-        
+
     if let Some(path) = file_path {
         let path = path.into_path().map_err(|e| e.to_string())?;
         let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let backup: BackupData = serde_json::from_str(&content).map_err(|e| format!("无效的备份文件: {}", e))?;
-        
+        let backup: BackupData =
+            serde_json::from_str(&content).map_err(|e| format!("无效的备份文件: {}", e))?;
+
         // Save to local storage
         save_tasks(app_handle.clone(), backup.tasks)?;
-        
+
         let archive_path = get_file_path(&app_handle, "archive.json")?;
         let archive_content = serde_json::to_string(&backup.archive).map_err(|e| e.to_string())?;
         fs::write(archive_path, archive_content).map_err(|e| e.to_string())?;
-        
+
         save_settings(app_handle.clone(), backup.settings)?;
-        
+
         Ok("导入成功，请重启应用以应用所有设置".to_string())
     } else {
         Err("取消导入".to_string())
@@ -139,9 +344,9 @@ fn get_archive(app_handle: AppHandle, offset_months: u32) -> Result<Vec<Task>, S
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis() as i64;
-        
+
     let ms_per_month: i64 = 30 * 24 * 60 * 60 * 1000;
-    
+
     let start_threshold = now - (offset_months as i64 * ms_per_month);
     let end_threshold = now - ((offset_months as i64 + 3) * ms_per_month);
 
@@ -194,7 +399,7 @@ fn archive_tasks(app_handle: AppHandle, tasks_to_archive: Vec<Task>) -> Result<(
     } else {
         Vec::new()
     };
-    
+
     all_archive.extend(tasks_to_archive);
     let content = serde_json::to_string(&all_archive).map_err(|e| e.to_string())?;
     fs::write(path, content).map_err(|e| e.to_string())?;
@@ -202,7 +407,10 @@ fn archive_tasks(app_handle: AppHandle, tasks_to_archive: Vec<Task>) -> Result<(
 }
 
 #[tauri::command]
-fn update_always_on_top<R: Runtime>(window: tauri::WebviewWindow<R>, always_on_top: bool) -> Result<(), String> {
+fn update_always_on_top<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    always_on_top: bool,
+) -> Result<(), String> {
     apply_always_on_top(&window, always_on_top);
     Ok(())
 }
@@ -213,14 +421,51 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
         if let Ok(hwnd) = window.hwnd() {
             let hwnd = HWND(hwnd.0 as _);
             unsafe {
-                let is_desktop_attached = GetParent(hwnd)
-                    .map(|p| !p.0.is_null())
-                    .unwrap_or(false);
-                if !is_desktop_attached {
-                    let order = if always_on_top { HWND_TOPMOST } else { HWND_NOTOPMOST };
+                let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+                if always_on_top {
+                    // 移除装饰守护子类（如果之前安装过）
+                    let _ = RemoveWindowSubclass(
+                        hwnd,
+                        Some(decoration_guard_proc),
+                        DECORATION_GUARD_ID,
+                    );
+                    let _ = SetParent(hwnd, HWND::default());
+                    // 恢复原本的弹出窗样式位
+                    style = (style & !WS_CHILD.0) | WS_POPUP.0;
+                    SetWindowLongW(hwnd, GWL_STYLE, style as i32);
                     let _ = SetWindowPos(
                         hwnd,
-                        order,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE,
+                    );
+                } else {
+                    if let Some(worker) = find_desktop_worker_window() {
+                        // 1. 设置为子窗口
+                        style = (style & !WS_POPUP.0) | WS_CHILD.0 | WS_CLIPSIBLINGS.0;
+                        // 2. 彻底剥离任何标题栏、边框和系统按钮 (防止 Win+D 恢复它们)
+                        style &= !(WS_CAPTION.0
+                            | WS_THICKFRAME.0
+                            | WS_SYSMENU.0
+                            | WS_MAXIMIZEBOX.0
+                            | WS_MINIMIZEBOX.0);
+
+                        SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+                        let _ = SetParent(hwnd, worker);
+                        // 安装窗口子类，拦截 WM_STYLECHANGING 防止系统重新添加边框
+                        let _ = SetWindowSubclass(
+                            hwnd,
+                            Some(decoration_guard_proc),
+                            DECORATION_GUARD_ID,
+                            0,
+                        );
+                    }
+                    let _ = SetWindowPos(
+                        hwnd,
+                        HWND_NOTOPMOST,
                         0,
                         0,
                         0,
@@ -276,8 +521,10 @@ fn main() {
                             if let Ok(Some(monitor)) = window.current_monitor() {
                                 let area = monitor.work_area();
                                 let win_size = window.outer_size().unwrap_or_default();
-                                let x = area.position.x + area.size.width as i32 - win_size.width as i32;
-                                let y = area.position.y + area.size.height as i32 - win_size.height as i32;
+                                let x = area.position.x + area.size.width as i32
+                                    - win_size.width as i32;
+                                let y = area.position.y + area.size.height as i32
+                                    - win_size.height as i32;
                                 let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
                             }
                         }
@@ -298,46 +545,39 @@ fn main() {
                 }
             }
 
-            // Desktop edge snapping logic & Auto-save position
-            let window_handle = window.clone();
+            // 安装边界限制子类：在窗口移动前拦截 WM_MOVING，限制在工作区内，消除闪烁
+            #[cfg(target_os = "windows")]
+            {
+                if let Ok(hwnd) = window.hwnd() {
+                    let hwnd = HWND(hwnd.0 as _);
+                    unsafe {
+                        let _ = SetWindowSubclass(hwnd, Some(edge_clamp_proc), EDGE_CLAMP_ID, 0);
+                    }
+                }
+            }
+
+            // Auto-save position on move
             let app_handle_for_event = handle.clone();
             window.on_window_event(move |event| {
-                if let tauri::WindowEvent::Moved(pos) = event {
-                    let win = window_handle.clone();
-                    let mut final_x = pos.x;
-                    let mut final_y = pos.y;
-                    let mut should_reposition = false;
-
-                    if let Ok(Some(monitor)) = win.current_monitor() {
-                        let area = monitor.work_area();
-                        let size = win.outer_size().unwrap_or_default();
-                        let edge_correction = 0;
-
-                        let min_x = area.position.x - edge_correction;
-                        let max_x = area.position.x + area.size.width as i32 + edge_correction - size.width as i32;
-                        let min_y = area.position.y - edge_correction;
-                        let max_y = area.position.y + area.size.height as i32 + edge_correction - size.height as i32;
-
-                        if final_x < min_x { final_x = min_x; should_reposition = true; }
-                        if final_x > max_x { final_x = max_x; should_reposition = true; }
-                        if final_y < min_y { final_y = min_y; should_reposition = true; }
-                        if final_y > max_y { final_y = max_y; should_reposition = true; }
-
-                        if should_reposition {
-                            let _ = win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
-                        }
-                    }
-
-                    // 保存位置到 settings.json
-                    if let Ok(path) = get_file_path(&app_handle_for_event, "settings.json") {
-                        if let Ok(content) = fs::read_to_string(&path) {
-                            if let Ok(mut settings) = serde_json::from_str::<Settings>(&content) {
-                                settings.x = Some(final_x);
-                                settings.y = Some(final_y);
-                                let _ = fs::write(path, serde_json::to_string(&settings).unwrap_or_default());
+                match event {
+                    tauri::WindowEvent::Moved(pos) => {
+                        // 位置已由 WM_MOVING 子类限制在屏幕工作区内，直接保存
+                        if let Ok(path) = get_file_path(&app_handle_for_event, "settings.json") {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                if let Ok(mut settings) = serde_json::from_str::<Settings>(&content)
+                                {
+                                    settings.x = Some(pos.x);
+                                    settings.y = Some(pos.y);
+                                    let _ = fs::write(
+                                        path,
+                                        serde_json::to_string(&settings).unwrap_or_default(),
+                                    );
+                                }
                             }
                         }
                     }
+                    // 无边框样式由窗口子类 (WM_STYLECHANGING) 守护，不再需要在事件中处理
+                    _ => {}
                 }
             });
 
