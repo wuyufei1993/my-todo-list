@@ -256,15 +256,15 @@ body {
   display: none !important;
 }
 
-/* 自动翻转逻辑：最后两个任务的详情向上弹出，但排除前两项以防撞到顶部 header */
-.todo-item:nth-last-child(-n+2):nth-child(n+3) .todo-tooltip {
-  top: auto;
-  bottom: calc(100% + 6px);
-  transform: translateY(-4px);
+/* 动态翻转逻辑：当 JavaScript 检测到遮挡时添加 .flip-up 类 */
+.todo-tooltip.flip-up {
+  top: auto !important;
+  bottom: calc(100% + 6px) !important;
+  transform: translateY(-4px) !important;
 }
 
-.todo-item:nth-last-child(-n+2):nth-child(n+3):hover .todo-tooltip {
-  transform: translateY(0);
+.todo-item:hover .todo-tooltip.flip-up {
+  transform: translateY(0) !important;
 }
 
 .todo-item:hover .todo-tooltip {
@@ -273,14 +273,48 @@ body {
   transform: translateY(0);
 }
 
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 15px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 6px;
+}
+
 .tooltip-title {
   font-weight: bold;
   font-size: 0.92em;
-  margin-bottom: 6px;
-  color: var(--accent-color);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05); /* 极淡的分隔线 */
-  padding-bottom: 6px;
+  color: var(--accent-color); /* 默认颜色 */
+  transition: color 0.3s;
+  flex: 1;
+  /* 允许换行，完整显示 */
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
 }
+
+.tooltip-deadline {
+  font-size: 0.75em;
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: normal;
+  white-space: nowrap;
+  align-self: flex-start; /* 标题多行时，日期对齐到首行 */
+  padding-top: 2px;
+}
+
+/* 当无详情描述时，移除 header 的边框和边距 */
+.tooltip-header:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* Tooltip 标题颜色联动 */
+.todo-tooltip.overdue .tooltip-title { color: var(--overdue-color); }
+.todo-tooltip.urgent .tooltip-title { color: var(--urgent-color); }
+.todo-tooltip.upcoming .tooltip-title { color: var(--upcoming-color); }
 
 .tooltip-content {
   font-size: 0.85em;
@@ -288,12 +322,55 @@ body {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* 最多显示 4 行，超出显示省略号 */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .todo-item:hover {
   background: rgba(255, 255, 255, 0.08);
   transform: translateX(2px);
   z-index: 100;
+}
+
+/* Task Action Buttons (on hover) */
+.todo-actions {
+  display: none; /* 默认不显示且不占位 */
+  gap: 4px;
+  margin-left: auto;
+}
+
+.todo-item:hover .todo-actions {
+  display: flex; /* 悬浮时显示并占位 */
+}
+
+.action-icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.action-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.action-icon-btn.active {
+  color: var(--pinned-color);
+}
+
+.action-icon-btn.danger:hover {
+  background: rgba(255, 71, 87, 0.15);
+  color: var(--overdue-color);
 }
 
 /* Status based backgrounds */
@@ -361,6 +438,11 @@ body {
   font-size: 0.75em;
   color: #888;
   margin-left: auto;
+}
+
+/* 悬浮时隐藏日期 */
+.todo-item:hover .todo-deadline {
+  display: none;
 }
 
 .todo-item.completed span {
@@ -659,4 +741,57 @@ body {
   background: rgba(255, 255, 255, 0.1);
   border-color: var(--accent-color);
   color: #fff;
+}
+
+/* Custom Confirm Modal Styles */
+.confirm-modal {
+  width: 260px !important;
+  text-align: center;
+  padding: 20px !important;
+}
+
+.confirm-message {
+  font-size: 0.95em;
+  margin-bottom: 20px;
+  line-height: 1.5;
+  color: #ededed;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.confirm-btn {
+  flex: 1;
+  border: none;
+  padding: 8px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.confirm-btn.cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+}
+
+.confirm-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.confirm-btn.primary {
+  background: var(--overdue-color); /* 删除操作使用红色提示 */
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.2);
+}
+
+.confirm-btn.primary:hover {
+  background: #ff5e6c;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 15px rgba(255, 71, 87, 0.3);
 }

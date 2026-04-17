@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { ask } from '@tauri-apps/plugin-dialog';
 import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical, Download, Upload } from 'lucide-react';
 
 const appWindow = getCurrentWebviewWindow();
@@ -22,12 +23,14 @@ export default function App() {
   const [settingsModal, setSettingsModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, taskId: null });
+  const [confirmModal, setConfirmModal] = useState({ open: false, message: '', onConfirm: null });
   const [isReady, setIsReady] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
   const [isImmersive, setIsImmersive] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const scrollTimer = useRef(null);
   const immersionTimer = useRef(null);
+  const isImmersiveRef = useRef(false); // 同步追踪沉浸状态
 
   // Show temporary message
   const showMessage = (text, type = 'info') => {
@@ -66,30 +69,51 @@ export default function App() {
     }
   };
 
-  // Reset immersion timer on activity
-  const resetImmersionTimer = () => {
+  // 停止沉浸模式并清除计时器（用于鼠标进入或操作时）
+  const stopImmersion = () => {
     setIsImmersive(false);
+    isImmersiveRef.current = false;
+    if (immersionTimer.current) clearTimeout(immersionTimer.current);
+  };
+
+  // 启动沉浸模式计时器（仅在鼠标移出后开始工作）
+  const startImmersionTimer = () => {
     if (immersionTimer.current) clearTimeout(immersionTimer.current);
     
-    // Don't start timer if any modal or menu is open
-    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen) return;
+    // 如果有弹窗或菜单开启，不启动计时器
+    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) return;
 
     immersionTimer.current = setTimeout(() => {
       setIsImmersive(true);
-    }, 5000); // 5 seconds of inactivity
+      isImmersiveRef.current = true;
+    }, 5000); // 5秒后进入沉浸模式
   };
 
+  // 监听弹窗状态，弹窗关闭且鼠标不在范围内时可能需要重启计时
   useEffect(() => {
-    resetImmersionTimer();
+    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) {
+      stopImmersion();
+    } else {
+      // 检查鼠标是否在窗口内，如果不在则启动计时
+      // 这里简化处理：弹窗关闭时默认尝试启动计时器
+      startImmersionTimer();
+    }
+    
     return () => {
       if (immersionTimer.current) clearTimeout(immersionTimer.current);
     };
-  }, [detailsModal.open, settingsModal, contextMenu.open, menuOpen]);
+  }, [detailsModal.open, settingsModal, contextMenu.open, menuOpen, confirmModal.open]);
 
   // Handle Scroll to show/hide scrollbar
   const handleScroll = () => {
     setIsScrolling(true);
-    resetImmersionTimer();
+    
+    // 如果已经在沉浸模式，不因为滚动而唤醒（除非用户移动鼠标进入）
+    // 这也避免了布局变化引起的伪滚动导致的唤醒
+    if (!isImmersiveRef.current) {
+      // 正常模式下的滚动不重置计时器，因为计时器现在只在鼠标移出后运行
+    }
+
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
       setIsScrolling(false);
@@ -221,6 +245,30 @@ export default function App() {
     setContextMenu({ open: true, x: e.clientX, y: e.clientY, taskId: id });
   };
 
+  const handleItemMouseEnter = (e) => {
+    const item = e.currentTarget;
+    const tooltip = item.querySelector('.todo-tooltip');
+    const listContainer = item.closest('.todo-list');
+    if (!tooltip || !listContainer) return;
+
+    tooltip.classList.remove('flip-up');
+
+    const tooltipHeight = tooltip.scrollHeight || 100;
+    const itemRect = item.getBoundingClientRect();
+    const listRect = listContainer.getBoundingClientRect();
+    
+    // Check if the tooltip goes below the visible area of the list container
+    if (itemRect.bottom + 6 + tooltipHeight > listRect.bottom) {
+      const spaceBelow = listRect.bottom - itemRect.bottom;
+      const spaceAbove = itemRect.top - listRect.top;
+      
+      // Flip up if there's more space above, or if we just don't have enough space below
+      if (spaceAbove > spaceBelow) {
+        tooltip.classList.add('flip-up');
+      }
+    }
+  };
+
   const toggleComplete = async (id) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
@@ -245,11 +293,25 @@ export default function App() {
   };
 
   const deleteTask = (id) => {
-    if (activeTab === 'todo') {
-      setTasks(tasks.filter(t => t.id !== id));
-    } else {
-      setArchive(archive.filter(t => t.id !== id));
-    }
+    const isTodo = activeTab === 'todo';
+    const task = isTodo 
+      ? tasks.find(t => t.id === id) 
+      : archive.find(t => t.id === id);
+    
+    if (!task) return;
+
+    setConfirmModal({
+      open: true,
+      message: `确定要永久删除${isTodo ? '待办' : '归档'} "${task.title}" 吗？`,
+      onConfirm: () => {
+        if (isTodo) {
+          setTasks(tasks.filter(t => t.id !== id));
+        } else {
+          setArchive(archive.filter(t => t.id !== id));
+        }
+        setConfirmModal({ open: false, message: '', onConfirm: null });
+      }
+    });
   };
 
   const togglePin = (id) => {
@@ -311,12 +373,23 @@ export default function App() {
   };
 
   const sortedTasks = [...tasks].sort((a, b) => {
+    // 1. 优先按置顶状态排序
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    
+    // 2. 同为置顶时，按时间戳倒序排列（最后操作/添加的在前）
+    if (a.pinned) return b.timestamp - a.timestamp;
+
+    // 3. 非置顶状态下的排序逻辑
+    // 3.1 有截止日期的优先于无截止日期的
+    if (a.deadline && !b.deadline) return -1;
+    if (!a.deadline && b.deadline) return 1;
+
+    // 3.2 同为有截止日期时，按截止日期正序排列（越近/越紧急的在前）
     if (a.deadline && b.deadline) {
-      return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      return a.deadline.localeCompare(b.deadline);
     }
-    if (a.deadline) return -1;
-    if (b.deadline) return 1;
+
+    // 3.3 同为无截止日期时，按创建顺序倒排（最后添加的在前）
     return b.timestamp - a.timestamp;
   });
 
@@ -332,8 +405,8 @@ export default function App() {
   return (
     <div
       className={`widget-container ${locked ? 'locked' : ''} ${isImmersive ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen ? 'menu-active' : ''}`}
-      onMouseMove={resetImmersionTimer}
-      onMouseLeave={() => setIsImmersive(true)}
+      onMouseEnter={stopImmersion}
+      onMouseLeave={startImmersionTimer}
     >
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
@@ -393,16 +466,43 @@ export default function App() {
               className={`todo-item ${getTaskStatus(task.deadline)}`}
               onDoubleClick={() => openDetails(task)}
               onContextMenu={(e) => handleContextMenu(e, task.id)}
+              onMouseEnter={handleItemMouseEnter}
             >
               {task.pinned && <div className="pin-indicator"><ArrowUpToLine size={14} /></div>}
               <div className="todo-title">{task.title}</div>
-              {task.deadline && <div className="todo-deadline">{task.deadline.slice(5)}</div>}
-              {task.details && (
-                <div className="todo-tooltip">
-                  <div className="tooltip-title">{task.title}</div>
-                  <div className="tooltip-content">{task.details}</div>
+              {task.deadline && (
+                <div className="todo-deadline">
+                  {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
+                    ? task.deadline 
+                    : task.deadline.slice(5)}
                 </div>
               )}
+              
+              <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
+                <button className={`action-icon-btn ${task.pinned ? 'active' : ''}`} onClick={() => togglePin(task.id)} title={task.pinned ? '取消置顶' : '置顶'}>
+                  {task.pinned ? <PinOff size={14} /> : <ArrowUpToLine size={14} />}
+                </button>
+                <button className="action-icon-btn" onClick={() => toggleComplete(task.id)} title="完成">
+                  <Check size={14} />
+                </button>
+                <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)} title="删除">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+
+              <div className={`todo-tooltip ${getTaskStatus(task.deadline)}`}>
+                <div className="tooltip-header">
+                  <div className="tooltip-title">{task.title}</div>
+                  {task.deadline && (
+                    <div className="tooltip-deadline">
+                      {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
+                        ? task.deadline 
+                        : task.deadline.slice(5)}
+                    </div>
+                  )}
+                </div>
+                {task.details && <div className="tooltip-content">{task.details}</div>}
+              </div>
             </div>
           ))
         ) : (
@@ -418,12 +518,29 @@ export default function App() {
                     onContextMenu={(e) => handleContextMenu(e, task.id)}
                   >
                     <div className="todo-title" style={{ opacity: 0.7 }}>{task.title}</div>
-                    {task.details && (
-                      <div className="todo-tooltip">
+                    
+                    <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
+                      <button className="action-icon-btn" onClick={() => restoreTask(task.id)} title="恢复到待办">
+                        <Plus size={14} />
+                      </button>
+                      <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)} title="删除归档">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    <div className="todo-tooltip">
+                      <div className="tooltip-header">
                         <div className="tooltip-title">{task.title}</div>
-                        <div className="tooltip-content">{task.details}</div>
+                        {task.deadline && (
+                          <div className="tooltip-deadline">
+                            {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
+                              ? task.deadline 
+                              : task.deadline.slice(5)}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      {task.details && <div className="tooltip-content">{task.details}</div>}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -550,11 +667,11 @@ export default function App() {
         >
           {activeTab === 'todo' ? (
             <>
-              <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
-                <Check size={14} /> 完成并归档
-              </button>
               <button className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}>
                 <ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}
+              </button>
+              <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
+                <Check size={14} /> 完成并归档
               </button>
             </>
           ) : (
@@ -563,8 +680,21 @@ export default function App() {
             </button>
           )}
           <button className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}>
-            <Trash2 size={14} /> 删除待办
+            <Trash2 size={14} /> {activeTab === 'todo' ? '删除待办' : '删除归档'}
           </button>
+        </div>
+      )}
+
+      {/* Custom Confirm Modal */}
+      {confirmModal.open && (
+        <div className="modal-overlay">
+          <div className="modal-content confirm-modal">
+            <div className="confirm-message">{confirmModal.message}</div>
+            <div className="confirm-actions">
+              <button className="confirm-btn cancel" onClick={() => setConfirmModal({ open: false, message: '', onConfirm: null })}>取消</button>
+              <button className="confirm-btn primary" onClick={confirmModal.onConfirm}>确定</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
