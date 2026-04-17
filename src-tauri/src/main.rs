@@ -362,23 +362,25 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
     let path = get_file_path(&app_handle, "settings.json")?;
     if !path.exists() {
         return Ok(Settings {
-            opacity: 0.4,
+            opacity: 1.0,
             font_size: 14,
             always_on_top: false,
-            height: 400,
+            auto_start: false,
+            height: 500,
             x: None,
             y: None,
         });
-    }
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let settings: Settings = serde_json::from_str(&content).unwrap_or_else(|_| Settings {
-        opacity: 0.4,
+        }
+        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let settings: Settings = serde_json::from_str(&content).unwrap_or_else(|_| Settings {
+        opacity: 1.0,
         font_size: 14,
         always_on_top: false,
-        height: 400,
+        auto_start: false,
+        height: 500,
         x: None,
         y: None,
-    });
+        });
     Ok(settings)
 }
 
@@ -484,6 +486,7 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -591,6 +594,7 @@ fn main() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
+                .menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "quit" => {
                         app.exit(0);

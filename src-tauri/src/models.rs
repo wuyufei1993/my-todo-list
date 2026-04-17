@@ -18,6 +18,8 @@ pub struct Settings {
     pub font_size: u32,
     #[serde(rename = "alwaysOnTop")]
     pub always_on_top: bool,
+    #[serde(rename = "autoStart")]
+    pub auto_start: bool,
     pub height: u32,
     pub x: Option<i32>,
     pub y: Option<i32>,

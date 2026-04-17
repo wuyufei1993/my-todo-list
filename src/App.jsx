@@ -13,7 +13,7 @@ export default function App() {
   const [archiveOffset, setArchiveOffset] = useState(0);
   const [activeTab, setActiveTab] = useState('todo'); // 'todo' | 'archive'
 
-  const [settings, setSettings] = useState({ opacity: 0.4, fontSize: 14, height: 400 });
+  const [settings, setSettings] = useState({ opacity: 0.4, fontSize: 14, height: 400, autoStart: false });
   const [locked, setLocked] = useState(false);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   
@@ -136,10 +136,21 @@ export default function App() {
           setSettings({ 
             opacity: settingsData.opacity || 0.8, 
             fontSize: settingsData.fontSize || 14,
-            height: settingsData.height || 500
+            height: settingsData.height || 500,
+            autoStart: settingsData.autoStart || false
           });
           setAlwaysOnTop(settingsData.alwaysOnTop || false);
           invoke('update_always_on_top', { alwaysOnTop: settingsData.alwaysOnTop || false });
+          
+          // Verify with plugin actual state
+          try {
+            const isAutostartEnabled = await invoke('plugin:autostart|is_enabled');
+            if (isAutostartEnabled !== settingsData.autoStart) {
+              setSettings(s => ({ ...s, autoStart: isAutostartEnabled }));
+            }
+          } catch (e) {
+            console.error("Autostart plugin error:", e);
+          }
           
           if (settingsData.height) {
             const { LogicalSize } = await import('@tauri-apps/api/window');
@@ -351,6 +362,21 @@ export default function App() {
     const nextState = !alwaysOnTop;
     setAlwaysOnTop(nextState);
     invoke('update_always_on_top', { alwaysOnTop: nextState });
+  };
+
+  const toggleAutoStart = async () => {
+    const nextState = !settings.autoStart;
+    try {
+      if (nextState) {
+        await invoke('plugin:autostart|enable');
+      } else {
+        await invoke('plugin:autostart|disable');
+      }
+      setSettings({ ...settings, autoStart: nextState });
+    } catch (e) {
+      console.error("Failed to toggle autostart:", e);
+      showMessage("设置开机自启失败", "error");
+    }
   };
 
   const handleClose = async () => {
@@ -647,6 +673,13 @@ export default function App() {
                 value={settings.height} 
                 onChange={(e) => setSettings({ ...settings, height: parseInt(e.target.value) })}
               />
+            </div>
+
+            <div className="settings-row checkbox-row" onClick={toggleAutoStart}>
+              <label>开机自启动</label>
+              <div className={`custom-checkbox ${settings.autoStart ? 'checked' : ''}`}>
+                {settings.autoStart && <Check size={12} />}
+              </div>
             </div>
             
             <div className="settings-actions">
