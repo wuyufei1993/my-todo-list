@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical } from 'lucide-react';
+import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical, Download, Upload } from 'lucide-react';
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -25,8 +25,46 @@ export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
   const [isImmersive, setIsImmersive] = useState(false);
+  const [message, setMessage] = useState({ text: '', type: '' });
   const scrollTimer = useRef(null);
   const immersionTimer = useRef(null);
+
+  // Show temporary message
+  const showMessage = (text, type = 'info') => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await invoke('export_data');
+      showMessage(res, 'success');
+    } catch (err) {
+      if (err !== '取消导出') showMessage(err, 'error');
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const res = await invoke('import_data');
+      showMessage(res, 'success');
+      // Refresh data
+      const tasksData = await invoke('get_tasks');
+      if (tasksData) setTasks(tasksData);
+      const archiveData = await invoke('get_archive', { offsetMonths: 0 });
+      if (archiveData) setArchive(archiveData);
+      const settingsData = await invoke('get_settings');
+      if (settingsData) {
+        setSettings({ 
+          opacity: settingsData.opacity || 0.8, 
+          fontSize: settingsData.fontSize || 14,
+          height: settingsData.height || 500
+        });
+      }
+    } catch (err) {
+      if (err !== '取消导入') showMessage(err, 'error');
+    }
+  };
 
   // Reset immersion timer on activity
   const resetImmersionTimer = () => {
@@ -341,6 +379,12 @@ export default function App() {
         </div>
       </div>
 
+      {message.text && (
+        <div className={`message-toast ${message.type}`}>
+          {message.text}
+        </div>
+      )}
+
       <div className={`todo-list ${isScrolling ? 'scrolling' : ''}`} onScroll={handleScroll}>
         {activeTab === 'todo' ? (
           sortedTasks.map(task => (
@@ -384,9 +428,11 @@ export default function App() {
                 ))}
               </div>
             ))}
-            <button className="load-more-btn" onClick={loadMoreArchive}>
-              查看更早的记录 (3个月)
-            </button>
+            {!isImmersive && (
+              <button className="load-more-btn" onClick={loadMoreArchive}>
+                查看更早的记录 (3个月)
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -481,6 +527,16 @@ export default function App() {
                 onChange={(e) => setSettings({ ...settings, height: parseInt(e.target.value) })}
               />
             </div>
+            
+            <div className="settings-actions">
+              <button className="settings-action-btn" onClick={handleExport}>
+                <Download size={14}/> 导出数据
+              </button>
+              <button className="settings-action-btn" onClick={handleImport}>
+                <Upload size={14}/> 导入数据
+              </button>
+            </div>
+
             <button className="btn" onClick={() => setSettingsModal(false)}>关闭</button>
           </div>
         </div>

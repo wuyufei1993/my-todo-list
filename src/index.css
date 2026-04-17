@@ -242,13 +242,18 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 12px;
-  z-index: 2000;
+  z-index: 100; /* 降低 z-index，确保在下拉菜单 (1000) 之下 */
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   pointer-events: none;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   transform: translateY(4px);
   max-height: 200px;
   overflow-y: auto;
+}
+
+/* 当菜单、设置或详情弹窗打开时，禁用 Tooltip */
+.menu-active .todo-tooltip {
+  display: none !important;
 }
 
 /* 自动翻转逻辑：最后两个任务的详情向上弹出，但排除前两项以防撞到顶部 header */
@@ -579,4 +584,79 @@ body {
 /* Toggle Drag State visually */
 .widget-container.locked .header-tabs-container {
   cursor: default;
+}
+
+/* Dropdown Menu Enhancements */
+.dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: 4px 0;
+}
+
+/* Message Toast */
+.message-toast {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.85em;
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  animation: slideDown 0.3s ease-out;
+  pointer-events: none;
+}
+
+.message-toast.success {
+  background: rgba(46, 213, 115, 0.9);
+  color: white;
+}
+
+.message-toast.error {
+  background: rgba(255, 71, 87, 0.9);
+  color: white;
+}
+
+.message-toast.info {
+  background: rgba(79, 172, 254, 0.9);
+  color: white;
+}
+
+@keyframes slideDown {
+  from { transform: translate(-50%, -20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* Settings Actions */
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.settings-action-btn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ededed;
+  padding: 8px 0;
+  border-radius: 6px;
+  font-size: 0.85em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.settings-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-color);
+  color: #fff;
 }

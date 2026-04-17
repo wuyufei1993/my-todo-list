@@ -3,15 +3,17 @@
 
 mod models;
 
-use models::{Settings, Task};
+use models::{BackupData, Settings, Task};
 use std::fs;
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 use tauri::{
     menu::{Menu, MenuItem},
     path::BaseDirectory,
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, Runtime,
 };
+use tauri_plugin_dialog::DialogExt;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
@@ -33,6 +35,76 @@ fn get_file_path(app_handle: &AppHandle, filename: &str) -> Result<PathBuf, Stri
     
     path.push(filename);
     Ok(path)
+}
+
+#[tauri::command]
+async fn export_data(app_handle: AppHandle) -> Result<String, String> {
+    let tasks = get_tasks(app_handle.clone())?;
+    
+    // Get all archive
+    let archive_path = get_file_path(&app_handle, "archive.json")?;
+    let archive = if archive_path.exists() {
+        let content = fs::read_to_string(archive_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content).unwrap_or_else(|_| Vec::new())
+    } else {
+        Vec::new()
+    };
+    
+    let settings = get_settings(app_handle.clone())?;
+    
+    let backup = BackupData {
+        tasks,
+        archive,
+        settings,
+        version: "1.0.0".to_string(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis() as i64,
+    };
+    
+    let json = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
+    
+    let file_path = app_handle.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name("todo_backup.json")
+        .blocking_save_file();
+        
+    if let Some(path) = file_path {
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        fs::write(path, json).map_err(|e| e.to_string())?;
+        Ok("导出成功".to_string())
+    } else {
+        Err("取消导出".to_string())
+    }
+}
+
+#[tauri::command]
+async fn import_data(app_handle: AppHandle) -> Result<String, String> {
+    let file_path = app_handle.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .blocking_pick_file();
+        
+    if let Some(path) = file_path {
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let backup: BackupData = serde_json::from_str(&content).map_err(|e| format!("无效的备份文件: {}", e))?;
+        
+        // Save to local storage
+        save_tasks(app_handle.clone(), backup.tasks)?;
+        
+        let archive_path = get_file_path(&app_handle, "archive.json")?;
+        let archive_content = serde_json::to_string(&backup.archive).map_err(|e| e.to_string())?;
+        fs::write(archive_path, archive_content).map_err(|e| e.to_string())?;
+        
+        save_settings(app_handle.clone(), backup.settings)?;
+        
+        Ok("导入成功，请重启应用以应用所有设置".to_string())
+    } else {
+        Err("取消导入".to_string())
+    }
 }
 
 #[tauri::command]
@@ -167,6 +239,8 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -181,7 +255,9 @@ fn main() {
             get_settings,
             save_settings,
             archive_tasks,
-            update_always_on_top
+            update_always_on_top,
+            export_data,
+            import_data
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

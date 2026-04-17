@@ -22,3 +22,12 @@ pub struct Settings {
     pub x: Option<i32>,
     pub y: Option<i32>,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BackupData {
+    pub tasks: Vec<Task>,
+    pub archive: Vec<Task>,
+    pub settings: Settings,
+    pub version: String,
+    pub timestamp: i64,
+}
