@@ -541,28 +541,33 @@ body {
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* 改为从顶部开始对齐，防止底部被截断 */
   justify-content: center;
   z-index: 100;
   border-radius: var(--border-radius);
   -webkit-app-region: no-drag;
+  padding: 30px 20px; /* 增加上下边距 */
+  overflow-y: auto; /* 允许遮罩层在内容极长时滚动 */
 }
 
 .modal-content {
-  background: rgba(37, 37, 48, var(--modal-bg-opacity, 0.95)); /* 使用动态计算的不透明度 */
+  background: rgba(37, 37, 48, var(--modal-bg-opacity, 0.95));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  width: 85%;
+  width: 90%;
+  max-height: none; /* 由 overlay 的 padding 自然限制 */
   border-radius: 12px;
-  padding: 16px;
+  padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 15px;
   font-weight: bold;
 }
 
@@ -650,12 +655,18 @@ body {
   background: var(--accent-color);
   color: #fff;
   border: none;
-  padding: 6px 12px;
+  padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
-  margin-top: 10px;
-  float: right;
+  margin-top: 15px; /* 恢复固定边距 */
+  float: right; /* 使用 float 进行右对齐 */
   font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn:hover {
+  background: #00f2fe;
+  transform: translateY(-1px);
 }
 
 /* Context Menu HTML Native-like */

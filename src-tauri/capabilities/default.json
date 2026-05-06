@@ -20,6 +20,9 @@
     "dialog:allow-message",
     "dialog:allow-confirm",
     "fs:allow-read",
-    "fs:allow-write"
+    "fs:allow-write",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

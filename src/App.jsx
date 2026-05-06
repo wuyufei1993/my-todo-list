@@ -31,6 +31,7 @@ export default function App() {
   const scrollTimer = useRef(null);
   const immersionTimer = useRef(null);
   const isImmersiveRef = useRef(false); // 同步追踪沉浸状态
+  const isMouseInContainer = useRef(false); // 追踪鼠标是否在容器内
 
   // Show temporary message
   const showMessage = (text, type = 'info') => {
@@ -71,25 +72,34 @@ export default function App() {
 
   // 停止沉浸模式并清除计时器（用于鼠标进入或操作时）
   const stopImmersion = () => {
-    setIsImmersive(false);
-    isImmersiveRef.current = false;
-    if (immersionTimer.current) clearTimeout(immersionTimer.current);
+    isMouseInContainer.current = true;
+    if (isImmersiveRef.current) {
+      setIsImmersive(false);
+      isImmersiveRef.current = false;
+    }
+    if (immersionTimer.current) {
+      clearTimeout(immersionTimer.current);
+      immersionTimer.current = null;
+    }
   };
 
   // 启动沉浸模式计时器（仅在鼠标移出后开始工作）
   const startImmersionTimer = () => {
     if (immersionTimer.current) clearTimeout(immersionTimer.current);
     
-    // 如果有弹窗或菜单开启，不启动计时器
-    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) return;
+    // 如果有弹窗或菜单开启，或者鼠标仍在容器内，不启动计时器
+    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open || isMouseInContainer.current) return;
 
     // 如果当前列表为空，不进入沉浸模式，避免找不到小组件
     const isEmpty = activeTab === 'todo' ? tasks.length === 0 : archive.length === 0;
     if (isEmpty) return;
 
     immersionTimer.current = setTimeout(() => {
-      setIsImmersive(true);
-      isImmersiveRef.current = true;
+      // 最终检查：如果在此期间鼠标进入了，则不进入沉浸模式
+      if (!isMouseInContainer.current && !detailsModal.open && !settingsModal && !contextMenu.open && !menuOpen && !confirmModal.open) {
+        setIsImmersive(true);
+        isImmersiveRef.current = true;
+      }
     }, 5000); // 5秒后进入沉浸模式
   };
 
@@ -98,9 +108,10 @@ export default function App() {
     if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) {
       stopImmersion();
     } else {
-      // 检查鼠标是否在窗口内，如果不在则启动计时
-      // 这里简化处理：弹窗关闭时默认尝试启动计时器
-      startImmersionTimer();
+      // 仅在鼠标不在容器内时启动计时器
+      if (!isMouseInContainer.current) {
+        startImmersionTimer();
+      }
     }
     
     return () => {
@@ -436,7 +447,11 @@ export default function App() {
     <div
       className={`widget-container ${locked ? 'locked' : ''} ${isImmersive ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen ? 'menu-active' : ''}`}
       onMouseEnter={stopImmersion}
-      onMouseLeave={startImmersionTimer}
+      onMouseMove={stopImmersion}
+      onMouseLeave={() => {
+        isMouseInContainer.current = false;
+        startImmersionTimer();
+      }}
     >
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
