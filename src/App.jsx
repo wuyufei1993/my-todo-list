@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { ask } from '@tauri-apps/plugin-dialog';
 import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical, Download, Upload } from 'lucide-react';
 
 const appWindow = getCurrentWebviewWindow();
@@ -30,10 +29,9 @@ export default function App() {
   const [message, setMessage] = useState({ text: '', type: '' });
   const scrollTimer = useRef(null);
   const immersionTimer = useRef(null);
-  const isImmersiveRef = useRef(false); // 同步追踪沉浸状态
-  const isMouseInContainer = useRef(false); // 追踪鼠标是否在容器内
+  const isImmersiveRef = useRef(false);
+  const isMouseInContainer = useRef(false);
 
-  // Show temporary message
   const showMessage = (text, type = 'info') => {
     setMessage({ text, type });
     setTimeout(() => setMessage({ text: '', type: '' }), 3000);
@@ -52,7 +50,6 @@ export default function App() {
     try {
       const res = await invoke('import_data');
       showMessage(res, 'success');
-      // Refresh data
       const tasksData = await invoke('get_tasks');
       if (tasksData) setTasks(tasksData);
       const archiveData = await invoke('get_archive', { offsetMonths: 0 });
@@ -62,7 +59,8 @@ export default function App() {
         setSettings({ 
           opacity: settingsData.opacity || 0.8, 
           fontSize: settingsData.fontSize || 14,
-          height: settingsData.height || 500
+          height: settingsData.height || 500,
+          autoStart: settingsData.autoStart || false
         });
       }
     } catch (err) {
@@ -70,7 +68,6 @@ export default function App() {
     }
   };
 
-  // 停止沉浸模式并清除计时器（用于鼠标进入或操作时）
   const stopImmersion = () => {
     isMouseInContainer.current = true;
     if (isImmersiveRef.current) {
@@ -83,65 +80,40 @@ export default function App() {
     }
   };
 
-  // 启动沉浸模式计时器（仅在鼠标移出后开始工作）
   const startImmersionTimer = () => {
     if (immersionTimer.current) clearTimeout(immersionTimer.current);
-    
-    // 如果有弹窗或菜单开启，或者鼠标仍在容器内，不启动计时器
     if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open || isMouseInContainer.current) return;
-
-    // 如果当前列表为空，不进入沉浸模式，避免找不到小组件
     const isEmpty = activeTab === 'todo' ? tasks.length === 0 : archive.length === 0;
     if (isEmpty) return;
 
     immersionTimer.current = setTimeout(() => {
-      // 最终检查：如果在此期间鼠标进入了，则不进入沉浸模式
       if (!isMouseInContainer.current && !detailsModal.open && !settingsModal && !contextMenu.open && !menuOpen && !confirmModal.open) {
         setIsImmersive(true);
         isImmersiveRef.current = true;
       }
-    }, 5000); // 5秒后进入沉浸模式
+    }, 5000);
   };
 
-  // 监听弹窗状态，弹窗关闭且鼠标不在范围内时可能需要重启计时
   useEffect(() => {
     if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) {
       stopImmersion();
     } else {
-      // 仅在鼠标不在容器内时启动计时器
-      if (!isMouseInContainer.current) {
-        startImmersionTimer();
-      }
+      if (!isMouseInContainer.current) startImmersionTimer();
     }
-    
-    return () => {
-      if (immersionTimer.current) clearTimeout(immersionTimer.current);
-    };
+    return () => { if (immersionTimer.current) clearTimeout(immersionTimer.current); };
   }, [detailsModal.open, settingsModal, contextMenu.open, menuOpen, confirmModal.open]);
 
-  // Handle Scroll to show/hide scrollbar
   const handleScroll = () => {
     setIsScrolling(true);
-    
-    // 如果已经在沉浸模式，不因为滚动而唤醒（除非用户移动鼠标进入）
-    // 这也避免了布局变化引起的伪滚动导致的唤醒
-    if (!isImmersiveRef.current) {
-      // 正常模式下的滚动不重置计时器，因为计时器现在只在鼠标移出后运行
-    }
-
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    scrollTimer.current = setTimeout(() => {
-      setIsScrolling(false);
-    }, 1500);
+    scrollTimer.current = setTimeout(() => { setIsScrolling(false); }, 1500);
   };
 
-  // Load Initial Data
   useEffect(() => {
     async function init() {
       try {
         const tasksData = await invoke('get_tasks');
         if (tasksData) setTasks(tasksData);
-
         const settingsData = await invoke('get_settings');
         if (settingsData) {
           setSettings({ 
@@ -152,26 +124,13 @@ export default function App() {
           });
           setAlwaysOnTop(settingsData.alwaysOnTop || false);
           invoke('update_always_on_top', { alwaysOnTop: settingsData.alwaysOnTop || false });
-          
-          // Verify with plugin actual state
-          try {
-            const isAutostartEnabled = await invoke('plugin:autostart|is_enabled');
-            if (isAutostartEnabled !== settingsData.autoStart) {
-              setSettings(s => ({ ...s, autoStart: isAutostartEnabled }));
-            }
-          } catch (e) {
-            console.error("Autostart plugin error:", e);
-          }
-          
           if (settingsData.height) {
             const { LogicalSize } = await import('@tauri-apps/api/window');
             await appWindow.setSize(new LogicalSize(350, settingsData.height));
           }
         }
-
         const archiveData = await invoke('get_archive', { offsetMonths: 0 });
         if (archiveData) setArchive(archiveData);
-
         setIsReady(true);
       } catch (err) {
         console.error("Failed to load data", err);
@@ -181,14 +140,12 @@ export default function App() {
     init();
   }, []);
 
-  // Sync tasks to disk
   useEffect(() => {
-    if (isReady && activeTab === 'todo') {
+    if (isReady) {
       invoke('save_tasks', { tasks });
     }
-  }, [tasks, isReady, activeTab]);
+  }, [tasks, isReady]);
 
-  // Sync settings to disk
   useEffect(() => {
     if (isReady) {
       document.documentElement.style.setProperty('--bg-opacity', settings.opacity);
@@ -198,7 +155,6 @@ export default function App() {
       document.documentElement.style.setProperty('--tooltip-bg-opacity', tooltipOpacity);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
       invoke('save_settings', { settings: { ...settings, alwaysOnTop } });
-      
       const updateSize = async () => {
         try {
           const { LogicalSize } = await import('@tauri-apps/api/window');
@@ -208,42 +164,31 @@ export default function App() {
           await appWindow.setMinSize(size);
           await appWindow.setMaxSize(size);
           await appWindow.setResizable(false);
-        } catch (err) {
-          console.error("Failed to set or lock window size:", err);
-        }
+        } catch (err) { console.error(err); }
       };
       updateSize();
     }
   }, [settings, alwaysOnTop, isReady]);
 
-  // Click outside to close menus
   useEffect(() => {
     const handleClick = () => {
       setContextMenu({ open: false, x: 0, y: 0, taskId: null });
       setMenuOpen(false);
     };
-    
-    const handleGlobalContextMenu = (e) => {
-      if (!e.target.closest('.todo-item')) {
-        e.preventDefault();
-      }
-    };
-
+    const handleGlobalContextMenu = (e) => { if (!e.target.closest('.todo-item')) e.preventDefault(); };
     document.addEventListener('click', handleClick);
     document.addEventListener('contextmenu', handleGlobalContextMenu);
-    
     return () => {
       document.removeEventListener('click', handleClick);
       document.removeEventListener('contextmenu', handleGlobalContextMenu);
     };
   }, []);
 
-  // Add task
   const addTask = (e) => {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
     const newTask = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       title: newTaskTitle.trim(),
       details: '',
       completed: false,
@@ -251,7 +196,7 @@ export default function App() {
       timestamp: Date.now(),
       deadline: null
     };
-    setTasks([...tasks, newTask]);
+    setTasks(prev => [...prev, newTask]);
     setNewTaskTitle('');
   };
 
@@ -259,11 +204,9 @@ export default function App() {
     const nextOffset = archiveOffset + 3;
     try {
       const moreData = await invoke('get_archive', { offsetMonths: nextOffset });
-      setArchive([...archive, ...moreData]);
+      setArchive(prev => [...prev, ...moreData]);
       setArchiveOffset(nextOffset);
-    } catch (err) {
-      console.error("Failed to load more archive", err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const handleContextMenu = (e, id) => {
@@ -276,20 +219,12 @@ export default function App() {
     const tooltip = item.querySelector('.todo-tooltip');
     const listContainer = item.closest('.todo-list');
     if (!tooltip || !listContainer) return;
-
     tooltip.classList.remove('flip-up');
-
     const tooltipHeight = tooltip.scrollHeight || 100;
     const itemRect = item.getBoundingClientRect();
     const listRect = listContainer.getBoundingClientRect();
-    
-    // Check if the tooltip goes below the visible area of the list container
     if (itemRect.bottom + 6 + tooltipHeight > listRect.bottom) {
-      const spaceBelow = listRect.bottom - itemRect.bottom;
-      const spaceAbove = itemRect.top - listRect.top;
-      
-      // Flip up if there's more space above, or if we just don't have enough space below
-      if (spaceAbove > spaceBelow) {
+      if (itemRect.top - listRect.top > listRect.bottom - itemRect.bottom) {
         tooltip.classList.add('flip-up');
       }
     }
@@ -298,42 +233,34 @@ export default function App() {
   const toggleComplete = async (id) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
-
-    if (!task.completed) {
-      const updatedTask = { ...task, completed: true, timestamp: Date.now() };
-      setTasks(tasks.filter(t => t.id !== id));
-      setArchive([updatedTask, ...archive]);
-      await invoke('archive_tasks', { tasksToArchive: [updatedTask] });
-      await invoke('save_tasks', { tasks: tasks.filter(t => t.id !== id) });
-    }
+    const updatedTask = { ...task, completed: true, timestamp: Date.now() };
+    setTasks(prev => prev.filter(t => t.id !== id));
+    setArchive(prev => [updatedTask, ...prev]);
+    await invoke('archive_tasks', { tasksToArchive: [updatedTask] });
   };
 
   const restoreTask = async (id) => {
     const task = archive.find(t => t.id === id);
     if (!task) return;
-
     const restoredTask = { ...task, completed: false, timestamp: Date.now() };
-    setArchive(archive.filter(t => t.id !== id));
-    setTasks([restoredTask, ...tasks]);
-    await invoke('save_tasks', { tasks: [restoredTask, ...tasks] });
+    setArchive(prev => prev.filter(t => t.id !== id));
+    setTasks(prev => [restoredTask, ...prev]);
+    await invoke('delete_archive_task', { id });
   };
 
   const deleteTask = (id) => {
     const isTodo = activeTab === 'todo';
-    const task = isTodo 
-      ? tasks.find(t => t.id === id) 
-      : archive.find(t => t.id === id);
-    
+    const task = isTodo ? tasks.find(t => t.id === id) : archive.find(t => t.id === id);
     if (!task) return;
-
     setConfirmModal({
       open: true,
       message: `确定要永久删除${isTodo ? '待办' : '归档'} "${task.title}" 吗？`,
-      onConfirm: () => {
+      onConfirm: async () => {
         if (isTodo) {
-          setTasks(tasks.filter(t => t.id !== id));
+          setTasks(prev => prev.filter(t => t.id !== id));
         } else {
-          setArchive(archive.filter(t => t.id !== id));
+          setArchive(prev => prev.filter(t => t.id !== id));
+          await invoke('delete_archive_task', { id });
         }
         setConfirmModal({ open: false, message: '', onConfirm: null });
       }
@@ -341,20 +268,14 @@ export default function App() {
   };
 
   const togglePin = (id) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
   };
 
   const openDetails = (task) => {
-    setDetailsModal({ 
-      open: true, 
-      task, 
-      title: task.title || '',
-      details: task.details || '', 
-      deadline: task.deadline || '' 
-    });
+    setDetailsModal({ open: true, task, title: task.title || '', details: task.details || '', deadline: task.deadline || '' });
   };
 
-  const saveDetails = () => {
+  const saveDetails = async () => {
     const updatedTask = { 
       ...detailsModal.task, 
       title: detailsModal.title.trim() || detailsModal.task.title,
@@ -362,9 +283,10 @@ export default function App() {
       deadline: detailsModal.deadline || null 
     };
     if (activeTab === 'todo') {
-      setTasks(tasks.map(t => t.id === updatedTask.id ? updatedTask : t));
+      setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
     } else {
-      setArchive(archive.map(t => t.id === updatedTask.id ? updatedTask : t));
+      setArchive(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+      await invoke('update_archive_task', { updatedTask });
     }
     setDetailsModal({ open: false, task: null, title: '', details: '', deadline: '' });
   };
@@ -378,27 +300,15 @@ export default function App() {
   const toggleAutoStart = async () => {
     const nextState = !settings.autoStart;
     try {
-      if (nextState) {
-        await invoke('plugin:autostart|enable');
-      } else {
-        await invoke('plugin:autostart|disable');
-      }
-      setSettings({ ...settings, autoStart: nextState });
-    } catch (e) {
-      console.error("Failed to toggle autostart:", e);
-      showMessage("设置开机自启失败", "error");
-    }
+      if (nextState) await invoke('plugin:autostart|enable');
+      else await invoke('plugin:autostart|disable');
+      setSettings(prev => ({ ...prev, autoStart: nextState }));
+    } catch (e) { showMessage("设置开机自启失败", "error"); }
   };
 
-  const handleClose = async () => {
-    await appWindow.hide();
-  };
+  const handleClose = async () => { await appWindow.hide(); };
 
-  const handleDrag = async (e) => {
-    if (!locked && e.button === 0) {
-      await appWindow.startDragging();
-    }
-  };
+  const handleDrag = async (e) => { if (!locked && e.button === 0) await appWindow.startDragging(); };
 
   const getTaskStatus = (deadline) => {
     if (!deadline) return '';
@@ -406,7 +316,6 @@ export default function App() {
     const dDate = new Date(deadline);
     const diff = dDate.getTime() - now.getTime();
     const diffDays = diff / (1000 * 60 * 60 * 24);
-
     if (diff < 0) return 'overdue';
     if (diffDays <= 1) return 'urgent';
     if (diffDays <= 3) return 'upcoming';
@@ -414,23 +323,11 @@ export default function App() {
   };
 
   const sortedTasks = [...tasks].sort((a, b) => {
-    // 1. 优先按置顶状态排序
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    
-    // 2. 同为置顶时，按时间戳倒序排列（最后操作/添加的在前）
     if (a.pinned) return b.timestamp - a.timestamp;
-
-    // 3. 非置顶状态下的排序逻辑
-    // 3.1 有截止日期的优先于无截止日期的
     if (a.deadline && !b.deadline) return -1;
     if (!a.deadline && b.deadline) return 1;
-
-    // 3.2 同为有截止日期时，按截止日期正序排列（越近/越紧急的在前）
-    if (a.deadline && b.deadline) {
-      return a.deadline.localeCompare(b.deadline);
-    }
-
-    // 3.3 同为无截止日期时，按创建顺序倒排（最后添加的在前）
+    if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
     return b.timestamp - a.timestamp;
   });
 
@@ -448,36 +345,21 @@ export default function App() {
       className={`widget-container ${locked ? 'locked' : ''} ${isImmersive ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen ? 'menu-active' : ''}`}
       onMouseEnter={stopImmersion}
       onMouseMove={stopImmersion}
-      onMouseLeave={() => {
-        isMouseInContainer.current = false;
-        startImmersionTimer();
-      }}
+      onMouseLeave={() => { isMouseInContainer.current = false; startImmersionTimer(); }}
     >
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
-          <button 
-            className={`tab ${activeTab === 'todo' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('todo')}
-          >
+          <button className={`tab ${activeTab === 'todo' ? 'active' : ''}`} onClick={() => setActiveTab('todo')}>
             <ClipboardList size={14} style={{ marginRight: 4 }} /> 待办
           </button>
-          <button 
-            className={`tab ${activeTab === 'archive' ? 'active' : ''}`} 
-            onClick={() => setActiveTab('archive')}
-          >
+          <button className={`tab ${activeTab === 'archive' ? 'active' : ''}`} onClick={() => setActiveTab('archive')}>
             <History size={14} style={{ marginRight: 4 }} /> 归档
           </button>
         </div>
-
         <div className="header-icons" onPointerDown={(e) => e.stopPropagation()}>
-          <button 
-            className={`icon-btn ${menuOpen ? 'active' : ''}`} 
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} 
-            title="菜单"
-          >
+          <button className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
             <MoreVertical size={16} />
           </button>
-          
           {menuOpen && (
             <div className="dropdown-menu">
               <button className="dropdown-item" onClick={() => { toggleAlwaysOnTop(); setMenuOpen(false); }}>
@@ -497,11 +379,7 @@ export default function App() {
         </div>
       </div>
 
-      {message.text && (
-        <div className={`message-toast ${message.type}`}>
-          {message.text}
-        </div>
-      )}
+      {message.text && <div className={`message-toast ${message.type}`}>{message.text}</div>}
 
       <div className={`todo-list ${isScrolling ? 'scrolling' : ''}`} onScroll={handleScroll}>
         {activeTab === 'todo' ? (
@@ -515,36 +393,18 @@ export default function App() {
             >
               {task.pinned && <div className="pin-indicator"><ArrowUpToLine size={14} /></div>}
               <div className="todo-title">{task.title}</div>
-              {task.deadline && (
-                <div className="todo-deadline">
-                  {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
-                    ? task.deadline 
-                    : task.deadline.slice(5)}
-                </div>
-              )}
-              
+              {task.deadline && <div className="todo-deadline">{task.deadline.split('-')[0] < new Date().getFullYear().toString() ? task.deadline : task.deadline.slice(5)}</div>}
               <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
-                <button className={`action-icon-btn ${task.pinned ? 'active' : ''}`} onClick={() => togglePin(task.id)} title={task.pinned ? '取消置顶' : '置顶'}>
+                <button className={`action-icon-btn ${task.pinned ? 'active' : ''}`} onClick={() => togglePin(task.id)}>
                   {task.pinned ? <PinOff size={14} /> : <ArrowUpToLine size={14} />}
                 </button>
-                <button className="action-icon-btn" onClick={() => toggleComplete(task.id)} title="完成">
-                  <Check size={14} />
-                </button>
-                <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)} title="删除">
-                  <Trash2 size={14} />
-                </button>
+                <button className="action-icon-btn" onClick={() => toggleComplete(task.id)}><Check size={14} /></button>
+                <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)}><Trash2 size={14} /></button>
               </div>
-
               <div className={`todo-tooltip ${getTaskStatus(task.deadline)}`}>
                 <div className="tooltip-header">
                   <div className="tooltip-title">{task.title}</div>
-                  {task.deadline && (
-                    <div className="tooltip-deadline">
-                      {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
-                        ? task.deadline 
-                        : task.deadline.slice(5)}
-                    </div>
-                  )}
+                  {task.deadline && <div className="tooltip-deadline">{task.deadline.split('-')[0] < new Date().getFullYear().toString() ? task.deadline : task.deadline.slice(5)}</div>}
                 </div>
                 {task.details && <div className="tooltip-content">{task.details}</div>}
               </div>
@@ -556,45 +416,17 @@ export default function App() {
               <div key={date}>
                 <div className="archive-group-header">{date}</div>
                 {groupedArchive[date].map(task => (
-                  <div 
-                    key={task.id} 
-                    className="todo-item"
-                    onDoubleClick={() => openDetails(task)}
-                    onContextMenu={(e) => handleContextMenu(e, task.id)}
-                  >
+                  <div key={task.id} className="todo-item" onDoubleClick={() => openDetails(task)} onContextMenu={(e) => handleContextMenu(e, task.id)}>
                     <div className="todo-title" style={{ opacity: 0.7 }}>{task.title}</div>
-                    
                     <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
-                      <button className="action-icon-btn" onClick={() => restoreTask(task.id)} title="恢复到待办">
-                        <Plus size={14} />
-                      </button>
-                      <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)} title="删除归档">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-
-                    <div className="todo-tooltip">
-                      <div className="tooltip-header">
-                        <div className="tooltip-title">{task.title}</div>
-                        {task.deadline && (
-                          <div className="tooltip-deadline">
-                            {task.deadline.split('-')[0] < new Date().getFullYear().toString() 
-                              ? task.deadline 
-                              : task.deadline.slice(5)}
-                          </div>
-                        )}
-                      </div>
-                      {task.details && <div className="tooltip-content">{task.details}</div>}
+                      <button className="action-icon-btn" onClick={() => restoreTask(task.id)}><Plus size={14} /></button>
+                      <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)}><Trash2 size={14} /></button>
                     </div>
                   </div>
                 ))}
               </div>
             ))}
-            {!isImmersive && (
-              <button className="load-more-btn" onClick={loadMoreArchive}>
-                查看更早的记录 (3个月)
-              </button>
-            )}
+            {!isImmersive && <button className="load-more-btn" onClick={loadMoreArchive}>查看更早的记录 (3个月)</button>}
           </div>
         )}
       </div>
@@ -603,24 +435,15 @@ export default function App() {
         <form className="add-input-container" onSubmit={addTask}>
           <div className="add-input-wrapper">
             <input 
-              type="text" 
-              className="add-input" 
-              placeholder="添加待办" 
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setTimeout(() => setInputFocused(false), 200)}
+              type="text" className="add-input" placeholder="添加待办" 
+              value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)}
+              onFocus={() => setInputFocused(true)} onBlur={() => setTimeout(() => setInputFocused(false), 200)}
             />
-            {(inputFocused || newTaskTitle) && (
-              <button type="submit" className="add-confirm-btn" title="提交">
-                <Check size={18} />
-              </button>
-            )}
+            {(inputFocused || newTaskTitle) && <button type="submit" className="add-confirm-btn"><Check size={18} /></button>}
           </div>
         </form>
       )}
 
-      {/* Details Modal */}
       {detailsModal.open && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -628,36 +451,17 @@ export default function App() {
               <span>待办详情</span>
               <button className="icon-btn" onClick={() => setDetailsModal({ open: false, task: null, title: '', details: '', deadline: '' })}><X size={16}/></button>
             </div>
-            <input 
-              type="text"
-              className="details-title-input"
-              value={detailsModal.title}
-              onChange={(e) => setDetailsModal({ ...detailsModal, title: e.target.value })}
-              placeholder="任务标题"
-            />
-            <textarea 
-              className="details-textarea"
-              value={detailsModal.details}
-              onChange={(e) => setDetailsModal({ ...detailsModal, details: e.target.value })}
-              placeholder="添加详细描述..."
-            />
+            <input type="text" className="details-title-input" value={detailsModal.title} onChange={(e) => setDetailsModal({ ...detailsModal, title: e.target.value })} placeholder="任务标题" />
+            <textarea className="details-textarea" value={detailsModal.details} onChange={(e) => setDetailsModal({ ...detailsModal, details: e.target.value })} placeholder="添加详细描述..." />
             <div className="settings-row" style={{ marginTop: 12 }}>
               <label>截止日期 (年/月/日)</label>
-              <input 
-                type="date" 
-                value={detailsModal.deadline}
-                onChange={(e) => setDetailsModal({ ...detailsModal, deadline: e.target.value })}
-                style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: 6, borderRadius: 4 }}
-              />
+              <input type="date" value={detailsModal.deadline} onChange={(e) => setDetailsModal({ ...detailsModal, deadline: e.target.value })} style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: 6, borderRadius: 4 }} />
             </div>
-            <button className="btn" onClick={saveDetails}>
-              保存
-            </button>
+            <button className="btn" onClick={saveDetails}>保存</button>
           </div>
         </div>
       )}
 
-      {/* Settings Modal */}
       {settingsModal && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -667,77 +471,43 @@ export default function App() {
             </div>
             <div className="settings-row">
               <label>不透明度: {settings.opacity.toFixed(1)}</label>
-              <input 
-                type="range" min="0.1" max="1" step="0.1" 
-                value={settings.opacity} 
-                onChange={(e) => setSettings({ ...settings, opacity: parseFloat(e.target.value) })}
-              />
+              <input type="range" min="0.1" max="1" step="0.1" value={settings.opacity} onChange={(e) => setSettings({ ...settings, opacity: parseFloat(e.target.value) })} />
             </div>
             <div className="settings-row">
               <label>文字大小: {settings.fontSize}px</label>
-              <input 
-                type="range" min="10" max="24" step="1" 
-                value={settings.fontSize} 
-                onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) })}
-              />
+              <input type="range" min="10" max="24" step="1" value={settings.fontSize} onChange={(e) => setSettings({ ...settings, fontSize: parseInt(e.target.value) })} />
             </div>
             <div className="settings-row">
               <label>小组件高度: {settings.height}px</label>
-              <input 
-                type="range" min="300" max="800" step="10" 
-                value={settings.height} 
-                onChange={(e) => setSettings({ ...settings, height: parseInt(e.target.value) })}
-              />
+              <input type="range" min="300" max="800" step="10" value={settings.height} onChange={(e) => setSettings({ ...settings, height: parseInt(e.target.value) })} />
             </div>
-
             <div className="settings-row checkbox-row" onClick={toggleAutoStart}>
               <label>开机自启动</label>
-              <div className={`custom-checkbox ${settings.autoStart ? 'checked' : ''}`}>
-                {settings.autoStart && <Check size={12} />}
-              </div>
+              <div className={`custom-checkbox ${settings.autoStart ? 'checked' : ''}`}>{settings.autoStart && <Check size={12} />}</div>
             </div>
-            
             <div className="settings-actions">
-              <button className="settings-action-btn" onClick={handleExport}>
-                <Download size={14}/> 导出数据
-              </button>
-              <button className="settings-action-btn" onClick={handleImport}>
-                <Upload size={14}/> 导入数据
-              </button>
+              <button className="settings-action-btn" onClick={handleExport}><Download size={14}/> 导出数据</button>
+              <button className="settings-action-btn" onClick={handleImport}><Upload size={14}/> 导入数据</button>
             </div>
-
             <button className="btn" onClick={() => setSettingsModal(false)}>关闭</button>
           </div>
         </div>
       )}
 
-      {/* Context Menu */}
       {contextMenu.open && (
-        <div 
-          className="context-menu" 
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
+        <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
           {activeTab === 'todo' ? (
             <>
-              <button className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}>
-                <ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}
-              </button>
-              <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}>
-                <Check size={14} /> 完成并归档
-              </button>
+              <button className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}><ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}</button>
+              <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}><Check size={14} /> 完成并归档</button>
             </>
           ) : (
-            <button className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}>
-              <Plus size={14} /> 恢复到待办
-            </button>
+            <button className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}><Plus size={14} /> 恢复到待办</button>
           )}
-          <button className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}>
-            <Trash2 size={14} /> {activeTab === 'todo' ? '删除待办' : '删除归档'}
-          </button>
+          <button className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}><Trash2 size={14} /> {activeTab === 'todo' ? '删除待办' : '删除归档'}</button>
         </div>
       )}
 
-      {/* Custom Confirm Modal */}
       {confirmModal.open && (
         <div className="modal-overlay">
           <div className="modal-content confirm-modal">

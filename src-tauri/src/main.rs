@@ -332,6 +332,44 @@ fn save_tasks(app_handle: AppHandle, tasks: Vec<Task>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_archive(app_handle: AppHandle, archive: Vec<Task>) -> Result<(), String> {
+    let path = get_file_path(&app_handle, "archive.json")?;
+    let content = serde_json::to_string(&archive).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_archive_task(app_handle: AppHandle, id: String) -> Result<(), String> {
+    let path = get_file_path(&app_handle, "archive.json")?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut all_archive: Vec<Task> = serde_json::from_str(&content).unwrap_or_else(|_| Vec::new());
+    all_archive.retain(|t| t.id != id);
+    let content = serde_json::to_string(&all_archive).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn update_archive_task(app_handle: AppHandle, updated_task: Task) -> Result<(), String> {
+    let path = get_file_path(&app_handle, "archive.json")?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut all_archive: Vec<Task> = serde_json::from_str(&content).unwrap_or_else(|_| Vec::new());
+    if let Some(task) = all_archive.iter_mut().find(|t| t.id == updated_task.id) {
+        *task = updated_task;
+    }
+    let content = serde_json::to_string(&all_archive).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_archive(app_handle: AppHandle, offset_months: u32) -> Result<Vec<Task>, String> {
     let path = get_file_path(&app_handle, "archive.json")?;
     if !path.exists() {
@@ -370,9 +408,9 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
             x: None,
             y: None,
         });
-        }
-        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let settings: Settings = serde_json::from_str(&content).unwrap_or_else(|_| Settings {
+    }
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let settings: Settings = serde_json::from_str(&content).unwrap_or_else(|_| Settings {
         opacity: 1.0,
         font_size: 14,
         always_on_top: false,
@@ -380,7 +418,7 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
         height: 500,
         x: None,
         y: None,
-        });
+    });
     Ok(settings)
 }
 
@@ -500,6 +538,9 @@ fn main() {
             get_tasks,
             save_tasks,
             get_archive,
+            save_archive,
+            delete_archive_task,
+            update_archive_task,
             get_settings,
             save_settings,
             archive_tasks,
