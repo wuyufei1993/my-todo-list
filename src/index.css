@@ -65,8 +65,8 @@ body {
   background: var(--theme-color);
   backdrop-filter: blur(25px);
   -webkit-backdrop-filter: blur(25px);
-  border-radius: 0;
-  border: none; /* 移除四周边框 */
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: none; /* 移除内阴影渐变 */
   height: 100%;
   display: flex;
@@ -81,7 +81,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px 4px 16px;
+  padding: 10px 12px;
+  gap: 12px;
+  flex-shrink: 0;
   background: rgba(0, 0, 0, 0.15);
   cursor: move;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -168,11 +170,15 @@ body {
 /* Tabs */
 .tabs {
   display: flex;
-  gap: 20px;
+  gap: 16px;
+  margin-right: auto;
   -webkit-app-region: no-drag;
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   background: transparent;
   border: none;
   padding: 6px 0;
@@ -208,21 +214,22 @@ body {
 /* List Area */
 .todo-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 12px 10px 40px 10px;
+  padding: 10px;
   -webkit-app-region: no-drag;
 }
 
 /* Task Status Colors */
 .todo-item {
-  padding: 8px 14px;
+  padding: 10px;
   border-radius: 10px;
   margin-bottom: 6px;
   background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: none; /* 移除四周边框 */
   border-left: 4px solid transparent;
@@ -230,47 +237,19 @@ body {
 }
 
 .todo-tooltip {
-  visibility: hidden;
-  opacity: 0;
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  top: calc(100% + 6px);
+  position: fixed;
+  width: 310px;
   background: rgb(30 30 40 / var(--tooltip-bg-opacity, 0.9)); /* 使用现代语法确保变量生效 */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   padding: 12px;
-  z-index: 100; /* 降低 z-index，确保在下拉菜单 (1000) 之下 */
+  z-index: 100;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  transform: translateY(4px);
   max-height: 200px;
   overflow-y: auto;
-}
-
-/* 当菜单、设置或详情弹窗打开时，禁用 Tooltip */
-.menu-active .todo-tooltip {
-  display: none !important;
-}
-
-/* 动态翻转逻辑：当 JavaScript 检测到遮挡时添加 .flip-up 类 */
-.todo-tooltip.flip-up {
-  top: auto !important;
-  bottom: calc(100% + 6px) !important;
-  transform: translateY(-4px) !important;
-}
-
-.todo-item:hover .todo-tooltip.flip-up {
-  transform: translateY(0) !important;
-}
-
-.todo-item:hover .todo-tooltip {
-  visibility: visible;
-  opacity: 1;
-  transform: translateY(0);
 }
 
 .tooltip-header {
@@ -331,8 +310,6 @@ body {
 
 .todo-item:hover {
   background: rgba(255, 255, 255, 0.08);
-  transform: translateX(2px);
-  z-index: 100;
 }
 
 /* Task Action Buttons (on hover) */
@@ -340,6 +317,7 @@ body {
   display: none; /* 默认不显示且不占位 */
   gap: 4px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .todo-item:hover .todo-actions {
@@ -452,6 +430,7 @@ body {
 
 .todo-title {
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -474,11 +453,12 @@ body {
 
 /* Add Item Input */
 .add-input-container {
+  flex-shrink: 0;
   padding: 12px 14px;
   background: rgba(0, 0, 0, 0.1);
   -webkit-app-region: no-drag;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 80px;
+  max-height: 100px;
   overflow: hidden;
 }
 
@@ -498,6 +478,7 @@ body {
 
 .add-input {
   flex: 1;
+  min-width: 0;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.05);
   color: #fff;
@@ -509,6 +490,7 @@ body {
 }
 
 .add-confirm-btn {
+  flex-shrink: 0;
   background: #4facfe;
   color: #fff;
   border: none;
@@ -536,28 +518,31 @@ body {
 
 /* Modal overlays (Settings & Details) */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: flex-start; /* 改为从顶部开始对齐，防止底部被截断 */
+  align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 2000;
   border-radius: var(--border-radius);
   -webkit-app-region: no-drag;
-  padding: 30px 20px; /* 增加上下边距 */
-  overflow-y: auto; /* 允许遮罩层在内容极长时滚动 */
+  padding: 12px;
+  overflow: hidden;
 }
 
 .modal-content {
   background: rgba(37, 37, 48, var(--modal-bg-opacity, 0.95));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  width: 90%;
-  max-height: none; /* 由 overlay 的 padding 自然限制 */
+  width: 100%;
+  max-width: 420px;
+  max-height: 100%;
+  min-height: 0;
   border-radius: 12px;
-  padding: 18px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -567,7 +552,10 @@ body {
 .modal-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 15px;
+  padding: 14px 16px;
+  flex-shrink: 0;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-weight: bold;
 }
 
@@ -658,8 +646,7 @@ body {
   padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
-  margin-top: 15px; /* 恢复固定边距 */
-  float: right; /* 使用 float 进行右对齐 */
+  margin-left: auto;
   font-family: inherit;
   transition: all 0.2s;
 }
@@ -671,6 +658,7 @@ body {
 
 /* Context Menu HTML Native-like */
 .context-menu {
+  overflow-y: auto;
   position: fixed;
   background: rgba(40, 40, 50, 0.95);
   backdrop-filter: blur(10px);
@@ -733,6 +721,9 @@ body {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
   animation: slideDown 0.3s ease-out;
   pointer-events: none;
+  max-width: calc(100% - 24px);
+  width: max-content;
+  overflow-wrap: anywhere;
 }
 
 .message-toast.success {
@@ -789,19 +780,18 @@ body {
 
 /* Custom Confirm Modal Styles */
 .confirm-modal {
-  width: 260px !important;
   text-align: center;
-  padding: 20px !important;
 }
 
 .confirm-message {
   font-size: 0.95em;
-  margin-bottom: 20px;
+  overflow-wrap: anywhere;
   line-height: 1.5;
   color: #ededed;
 }
 
 .confirm-actions {
+  width: 100%;
   display: flex;
   gap: 12px;
   justify-content: center;

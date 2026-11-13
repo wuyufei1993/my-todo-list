@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "my-todo-list",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "identifier": "com.mytodo.widget",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Todo Widget",
+        "title": "我的待办",
         "width": 350,
         "height": 400,
         "resizable": false,

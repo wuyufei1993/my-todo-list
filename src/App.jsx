@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
+import FloatingLayer from './FloatingLayer';
+import Modal from './Modal';
+import { sortTasks, reorderTasks } from './taskOrder';
+import useTaskReorder from './useTaskReorder';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical, Download, Upload } from 'lucide-react';
+import { Settings, Lock, Unlock, Pin, PinOff, Plus, Check, Trash2, ArrowUpToLine, X, History, ClipboardList, MoreVertical, Download, Upload, GripVertical } from 'lucide-react';
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -18,6 +22,7 @@ export default function App() {
   
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [inputFocused, setInputFocused] = useState(false);
+  const [tooltip, setTooltip] = useState(null);
   const [detailsModal, setDetailsModal] = useState({ open: false, task: null, title: '', details: '', deadline: '' });
   const [settingsModal, setSettingsModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -28,9 +33,12 @@ export default function App() {
   const [isImmersive, setIsImmersive] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const scrollTimer = useRef(null);
-  const immersionTimer = useRef(null);
-  const isImmersiveRef = useRef(false);
-  const isMouseInContainer = useRef(false);
+  const [mouseInside, setMouseInside] = useState(false);
+  const overlaysOpen = detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open;
+  const { listRef, drag, handleProps } = useTaskReorder(
+    (sourceId, targetId, placement) => setTasks(prev => reorderTasks(prev, sourceId, targetId, placement)),
+    () => { setTooltip(null); setIsImmersive(false); }
+  );
 
   const showMessage = (text, type = 'info') => {
     setMessage({ text, type });
@@ -69,41 +77,20 @@ export default function App() {
   };
 
   const stopImmersion = () => {
-    isMouseInContainer.current = true;
-    if (isImmersiveRef.current) {
-      setIsImmersive(false);
-      isImmersiveRef.current = false;
-    }
-    if (immersionTimer.current) {
-      clearTimeout(immersionTimer.current);
-      immersionTimer.current = null;
-    }
-  };
-
-  const startImmersionTimer = () => {
-    if (immersionTimer.current) clearTimeout(immersionTimer.current);
-    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open || isMouseInContainer.current) return;
-    const isEmpty = activeTab === 'todo' ? tasks.length === 0 : archive.length === 0;
-    if (isEmpty) return;
-
-    immersionTimer.current = setTimeout(() => {
-      if (!isMouseInContainer.current && !detailsModal.open && !settingsModal && !contextMenu.open && !menuOpen && !confirmModal.open) {
-        setIsImmersive(true);
-        isImmersiveRef.current = true;
-      }
-    }, 5000);
+    setMouseInside(true);
+    setIsImmersive(false);
   };
 
   useEffect(() => {
-    if (detailsModal.open || settingsModal || contextMenu.open || menuOpen || confirmModal.open) {
-      stopImmersion();
-    } else {
-      if (!isMouseInContainer.current) startImmersionTimer();
-    }
-    return () => { if (immersionTimer.current) clearTimeout(immersionTimer.current); };
-  }, [detailsModal.open, settingsModal, contextMenu.open, menuOpen, confirmModal.open]);
+    const empty = activeTab === 'todo' ? tasks.length === 0 : archive.length === 0;
+    if (overlaysOpen || mouseInside || inputFocused || drag || empty) return;
+    const timer = setTimeout(() => setIsImmersive(true), 5000);
+    return () => clearTimeout(timer);
+  }, [overlaysOpen, mouseInside, inputFocused, drag, activeTab, tasks.length, archive.length]);
 
   const handleScroll = () => {
+    setTooltip(null);
+    setContextMenu({ open: false, x: 0, y: 0, taskId: null });
     setIsScrolling(true);
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => { setIsScrolling(false); }, 1500);
@@ -124,10 +111,6 @@ export default function App() {
           });
           setAlwaysOnTop(settingsData.alwaysOnTop || false);
           invoke('update_always_on_top', { alwaysOnTop: settingsData.alwaysOnTop || false });
-          if (settingsData.height) {
-            const { LogicalSize } = await import('@tauri-apps/api/window');
-            await appWindow.setSize(new LogicalSize(350, settingsData.height));
-          }
         }
         const archiveData = await invoke('get_archive', { offsetMonths: 0 });
         if (archiveData) setArchive(archiveData);
@@ -149,38 +132,38 @@ export default function App() {
   useEffect(() => {
     if (isReady) {
       document.documentElement.style.setProperty('--bg-opacity', settings.opacity);
-      const modalOpacity = Math.min(1.0, settings.opacity + 0.05);
-      const tooltipOpacity = Math.min(1.0, settings.opacity + 0.2);
+      const modalOpacity = Math.max(0.94, settings.opacity);
+      const tooltipOpacity = Math.max(0.94, settings.opacity);
       document.documentElement.style.setProperty('--modal-bg-opacity', modalOpacity);
       document.documentElement.style.setProperty('--tooltip-bg-opacity', tooltipOpacity);
       document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
       invoke('save_settings', { settings: { ...settings, alwaysOnTop } });
-      const updateSize = async () => {
-        try {
-          const { LogicalSize } = await import('@tauri-apps/api/window');
-          const size = new LogicalSize(350, settings.height);
-          await appWindow.setResizable(true);
-          await appWindow.setSize(size);
-          await appWindow.setMinSize(size);
-          await appWindow.setMaxSize(size);
-          await appWindow.setResizable(false);
-        } catch (err) { console.error(err); }
-      };
-      updateSize();
     }
   }, [settings, alwaysOnTop, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    // Native code resizes and keeps the entire window above the taskbar.
+    const timer = setTimeout(() => {
+      invoke('resize_widget', { height: settings.height }).catch(console.error);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [settings.height, isReady]);
 
   useEffect(() => {
     const handleClick = () => {
       setContextMenu({ open: false, x: 0, y: 0, taskId: null });
       setMenuOpen(false);
     };
+    const handleEscape = (e) => { if (e.key === 'Escape') { handleClick(); setTooltip(null); } };
     const handleGlobalContextMenu = (e) => { if (!e.target.closest('.todo-item')) e.preventDefault(); };
     document.addEventListener('click', handleClick);
     document.addEventListener('contextmenu', handleGlobalContextMenu);
+    document.addEventListener('keydown', handleEscape);
     return () => {
       document.removeEventListener('click', handleClick);
       document.removeEventListener('contextmenu', handleGlobalContextMenu);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, []);
 
@@ -211,23 +194,14 @@ export default function App() {
 
   const handleContextMenu = (e, id) => {
     e.preventDefault();
+    setTooltip(null);
     setContextMenu({ open: true, x: e.clientX, y: e.clientY, taskId: id });
   };
 
-  const handleItemMouseEnter = (e) => {
-    const item = e.currentTarget;
-    const tooltip = item.querySelector('.todo-tooltip');
-    const listContainer = item.closest('.todo-list');
-    if (!tooltip || !listContainer) return;
-    tooltip.classList.remove('flip-up');
-    const tooltipHeight = tooltip.scrollHeight || 100;
-    const itemRect = item.getBoundingClientRect();
-    const listRect = listContainer.getBoundingClientRect();
-    if (itemRect.bottom + 6 + tooltipHeight > listRect.bottom) {
-      if (itemRect.top - listRect.top > listRect.bottom - itemRect.bottom) {
-        tooltip.classList.add('flip-up');
-      }
-    }
+  const handleItemMouseEnter = (e, task) => {
+    if (drag) return;
+    const { left, top, bottom } = e.currentTarget.getBoundingClientRect();
+    setTooltip({ task, anchor: { left, top, bottom } });
   };
 
   const toggleComplete = async (id) => {
@@ -239,10 +213,10 @@ export default function App() {
     await invoke('archive_tasks', { tasksToArchive: [updatedTask] });
   };
 
-  const restoreTask = async (id) => {
+  const handleRestoreTask = async (id, timestamp) => {
     const task = archive.find(t => t.id === id);
     if (!task) return;
-    const restoredTask = { ...task, completed: false, timestamp: Date.now() };
+    const restoredTask = { ...task, completed: false, timestamp, order: null };
     setArchive(prev => prev.filter(t => t.id !== id));
     setTasks(prev => [restoredTask, ...prev]);
     await invoke('delete_archive_task', { id });
@@ -268,7 +242,7 @@ export default function App() {
   };
 
   const togglePin = (id) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, pinned: !t.pinned } : t));
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, pinned: !t.pinned, order: null } : t));
   };
 
   const openDetails = (task) => {
@@ -303,7 +277,7 @@ export default function App() {
       if (nextState) await invoke('plugin:autostart|enable');
       else await invoke('plugin:autostart|disable');
       setSettings(prev => ({ ...prev, autoStart: nextState }));
-    } catch (e) { showMessage("设置开机自启失败", "error"); }
+    } catch { showMessage("设置开机自启失败", "error"); }
   };
 
   const handleClose = async () => { await appWindow.hide(); };
@@ -322,14 +296,7 @@ export default function App() {
     return '';
   };
 
-  const sortedTasks = [...tasks].sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    if (a.pinned) return b.timestamp - a.timestamp;
-    if (a.deadline && !b.deadline) return -1;
-    if (!a.deadline && b.deadline) return 1;
-    if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
-    return b.timestamp - a.timestamp;
-  });
+  const sortedTasks = sortTasks(tasks);
 
   const groupedArchive = archive.reduce((acc, task) => {
     const date = new Date(task.timestamp).toISOString().split('T')[0];
@@ -342,10 +309,10 @@ export default function App() {
 
   return (
     <div
-      className={`widget-container ${locked ? 'locked' : ''} ${isImmersive ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen ? 'menu-active' : ''}`}
+      className={`widget-container ${locked ? 'locked' : ''} ${isImmersive && !inputFocused && !overlaysOpen ? 'immersive' : ''} ${contextMenu.open || detailsModal.open || settingsModal || menuOpen || confirmModal.open ? 'menu-active' : ''}`}
       onMouseEnter={stopImmersion}
       onMouseMove={stopImmersion}
-      onMouseLeave={() => { isMouseInContainer.current = false; startImmersionTimer(); }}
+      onMouseLeave={() => { setMouseInside(false); setIsImmersive(false); setTooltip(null); }}
     >
       <div className="header-tabs-container" onPointerDown={handleDrag}>
         <div className="tabs" onPointerDown={(e) => e.stopPropagation()}>
@@ -357,7 +324,8 @@ export default function App() {
           </button>
         </div>
         <div className="header-icons" onPointerDown={(e) => e.stopPropagation()}>
-          <button className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
+          <button className={`icon-btn ${alwaysOnTop ? 'active' : ''}`} title={alwaysOnTop ? '取消窗口置顶' : '置顶窗口，避免被其他窗口遮挡'} aria-label="置顶窗口" aria-pressed={alwaysOnTop} onClick={toggleAlwaysOnTop}><Pin size={15}/></button>
+          <button aria-label="更多选项" aria-expanded={menuOpen} className={`icon-btn ${menuOpen ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
             <MoreVertical size={16} />
           </button>
           {menuOpen && (
@@ -381,32 +349,32 @@ export default function App() {
 
       {message.text && <div className={`message-toast ${message.type}`}>{message.text}</div>}
 
-      <div className={`todo-list ${isScrolling ? 'scrolling' : ''}`} onScroll={handleScroll}>
+      <div ref={listRef} className={`todo-list ${isScrolling ? 'scrolling' : ''} ${drag ? 'is-reordering' : ''}`} onScroll={handleScroll}>
+        {(activeTab === 'todo' ? tasks.length === 0 : archive.length === 0) && <div className="empty-state"><ClipboardList size={28}/><strong>{activeTab === 'todo' ? '把要做的事，记在这里' : '还没有已完成的待办'}</strong><span>{activeTab === 'todo' ? '从下方添加，完成一件勾选一件' : '完成的待办会收纳到这里'}</span></div>}
         {activeTab === 'todo' ? (
           sortedTasks.map(task => (
             <div 
               key={task.id} 
-              className={`todo-item ${getTaskStatus(task.deadline)}`}
+              className={`todo-item ${getTaskStatus(task.deadline)} ${drag?.sourceId === task.id ? 'is-dragging' : ''} ${drag?.targetId === task.id ? `drop-${drag.placement}` : ''}`}
+              data-task-id={task.id}
+              data-pinned={Boolean(task.pinned)}
               onDoubleClick={() => openDetails(task)}
               onContextMenu={(e) => handleContextMenu(e, task.id)}
-              onMouseEnter={handleItemMouseEnter}
+              onMouseEnter={(e) => handleItemMouseEnter(e, task)}
+              onMouseLeave={() => setTooltip(null)}
             >
               {task.pinned && <div className="pin-indicator"><ArrowUpToLine size={14} /></div>}
               <div className="todo-title">{task.title}</div>
               {task.deadline && <div className="todo-deadline">{task.deadline.split('-')[0] < new Date().getFullYear().toString() ? task.deadline : task.deadline.slice(5)}</div>}
               <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
+                <button type="button" className="action-icon-btn task-drag-handle" title="拖拽排序（置顶项保持在前）" aria-label={`拖拽排序：${task.title}`} disabled={overlaysOpen} {...handleProps(task)}>
+                  <GripVertical size={14} />
+                </button>
                 <button className={`action-icon-btn ${task.pinned ? 'active' : ''}`} onClick={() => togglePin(task.id)}>
                   {task.pinned ? <PinOff size={14} /> : <ArrowUpToLine size={14} />}
                 </button>
                 <button className="action-icon-btn" onClick={() => toggleComplete(task.id)}><Check size={14} /></button>
                 <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)}><Trash2 size={14} /></button>
-              </div>
-              <div className={`todo-tooltip ${getTaskStatus(task.deadline)}`}>
-                <div className="tooltip-header">
-                  <div className="tooltip-title">{task.title}</div>
-                  {task.deadline && <div className="tooltip-deadline">{task.deadline.split('-')[0] < new Date().getFullYear().toString() ? task.deadline : task.deadline.slice(5)}</div>}
-                </div>
-                {task.details && <div className="tooltip-content">{task.details}</div>}
               </div>
             </div>
           ))
@@ -419,7 +387,7 @@ export default function App() {
                   <div key={task.id} className="todo-item" onDoubleClick={() => openDetails(task)} onContextMenu={(e) => handleContextMenu(e, task.id)}>
                     <div className="todo-title" style={{ opacity: 0.7 }}>{task.title}</div>
                     <div className="todo-actions" onPointerDown={(e) => e.stopPropagation()}>
-                      <button className="action-icon-btn" onClick={() => restoreTask(task.id)}><Plus size={14} /></button>
+                      <button className="action-icon-btn" onClick={() => handleRestoreTask(task.id, Date.now())}><Plus size={14} /></button>
                       <button className="action-icon-btn danger" onClick={() => deleteTask(task.id)}><Trash2 size={14} /></button>
                     </div>
                   </div>
@@ -439,36 +407,24 @@ export default function App() {
               value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)}
               onFocus={() => setInputFocused(true)} onBlur={() => setTimeout(() => setInputFocused(false), 200)}
             />
-            {(inputFocused || newTaskTitle) && <button type="submit" className="add-confirm-btn"><Check size={18} /></button>}
+            <button type="submit" className="add-confirm-btn" aria-label="添加待办" disabled={!newTaskTitle.trim()}><Plus size={18} /></button>
           </div>
         </form>
       )}
 
       {detailsModal.open && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <span>待办详情</span>
-              <button className="icon-btn" onClick={() => setDetailsModal({ open: false, task: null, title: '', details: '', deadline: '' })}><X size={16}/></button>
-            </div>
+        <Modal title="待办详情" onClose={() => setDetailsModal({ ...detailsModal, open: false })} footer={<button className="btn" onClick={saveDetails}>保存</button>}>
             <input type="text" className="details-title-input" value={detailsModal.title} onChange={(e) => setDetailsModal({ ...detailsModal, title: e.target.value })} placeholder="任务标题" />
             <textarea className="details-textarea" value={detailsModal.details} onChange={(e) => setDetailsModal({ ...detailsModal, details: e.target.value })} placeholder="添加详细描述..." />
             <div className="settings-row" style={{ marginTop: 12 }}>
               <label>截止日期 (年/月/日)</label>
               <input type="date" value={detailsModal.deadline} onChange={(e) => setDetailsModal({ ...detailsModal, deadline: e.target.value })} style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: 6, borderRadius: 4 }} />
             </div>
-            <button className="btn" onClick={saveDetails}>保存</button>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {settingsModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header">
-              <span>设置</span>
-              <button className="icon-btn" onClick={() => setSettingsModal(false)}><X size={16}/></button>
-            </div>
+        <Modal title="设置" onClose={() => setSettingsModal(false)} footer={<button className="btn" onClick={() => setSettingsModal(false)}>完成</button>}>
             <div className="settings-row">
               <label>不透明度: {settings.opacity.toFixed(1)}</label>
               <input type="range" min="0.1" max="1" step="0.1" value={settings.opacity} onChange={(e) => setSettings({ ...settings, opacity: parseFloat(e.target.value) })} />
@@ -489,35 +445,38 @@ export default function App() {
               <button className="settings-action-btn" onClick={handleExport}><Download size={14}/> 导出数据</button>
               <button className="settings-action-btn" onClick={handleImport}><Upload size={14}/> 导入数据</button>
             </div>
-            <button className="btn" onClick={() => setSettingsModal(false)}>关闭</button>
-          </div>
-        </div>
+        </Modal>
+      )}
+
+      {tooltip && !drag && !contextMenu.open && !detailsModal.open && !settingsModal && !menuOpen && !confirmModal.open && (
+        <FloatingLayer anchor={tooltip.anchor} className={`todo-tooltip ${getTaskStatus(tooltip.task.deadline)}`} role="tooltip">
+          <div className="tooltip-header"><div className="tooltip-title">{tooltip.task.title}</div>{tooltip.task.deadline && <div className="tooltip-deadline">{tooltip.task.deadline}</div>}</div>
+          {tooltip.task.details && <div className="tooltip-content">{tooltip.task.details}</div>}
+          <div className="tooltip-hint">双击待办查看与编辑</div>
+        </FloatingLayer>
       )}
 
       {contextMenu.open && (
-        <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+        <FloatingLayer className="context-menu" anchor={{ left: contextMenu.x, top: contextMenu.y, bottom: contextMenu.y }}>
           {activeTab === 'todo' ? (
             <>
               <button className="context-menu-item" onClick={() => togglePin(contextMenu.taskId)}><ArrowUpToLine size={14} /> {tasks.find(t => t.id === contextMenu.taskId)?.pinned ? '取消置顶' : '置顶待办'}</button>
               <button className="context-menu-item" onClick={() => toggleComplete(contextMenu.taskId)}><Check size={14} /> 完成并归档</button>
             </>
           ) : (
-            <button className="context-menu-item" onClick={() => restoreTask(contextMenu.taskId)}><Plus size={14} /> 恢复到待办</button>
+            <button className="context-menu-item" onClick={() => handleRestoreTask(contextMenu.taskId, Date.now())}><Plus size={14} /> 恢复到待办</button>
           )}
           <button className="context-menu-item danger" onClick={() => deleteTask(contextMenu.taskId)}><Trash2 size={14} /> {activeTab === 'todo' ? '删除待办' : '删除归档'}</button>
-        </div>
+        </FloatingLayer>
       )}
 
       {confirmModal.open && (
-        <div className="modal-overlay">
-          <div className="modal-content confirm-modal">
-            <div className="confirm-message">{confirmModal.message}</div>
-            <div className="confirm-actions">
+        <Modal title="删除确认" className="confirm-modal" onClose={() => setConfirmModal({ open: false, message: '', onConfirm: null })} footer={<div className="confirm-actions">
               <button className="confirm-btn cancel" onClick={() => setConfirmModal({ open: false, message: '', onConfirm: null })}>取消</button>
               <button className="confirm-btn primary" onClick={confirmModal.onConfirm}>确定</button>
-            </div>
-          </div>
-        </div>
+            </div>}>
+          <div className="confirm-message">{confirmModal.message}</div>
+        </Modal>
       )}
     </div>
   );

@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod models;
+#[cfg(target_os = "windows")]
+mod window_layout;
 
 use models::{BackupData, Settings, Task};
 use std::fs;
@@ -126,40 +128,18 @@ unsafe extern "system" fn edge_clamp_proc(
     _dw_ref_data: usize,
 ) -> LRESULT {
     if msg == WM_MOVING {
-        use windows::Win32::Graphics::Gdi::{
-            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-        };
-
         let rect = &mut *(lparam.0 as *mut windows::Win32::Foundation::RECT);
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-
-        if GetMonitorInfoW(monitor, &mut mi as *mut _).as_bool() {
-            let work = mi.rcWork;
-            let w = rect.right - rect.left;
-            let h = rect.bottom - rect.top;
-
-            if rect.left < work.left {
-                rect.left = work.left;
-                rect.right = work.left + w;
-            }
-            if rect.top < work.top {
-                rect.top = work.top;
-                rect.bottom = work.top + h;
-            }
-            if rect.right > work.right {
-                rect.right = work.right;
-                rect.left = work.right - w;
-            }
-            if rect.bottom > work.bottom {
-                rect.bottom = work.bottom;
-                rect.top = work.bottom - h;
-            }
+        if let Some(work) = window_layout::work_area(rect) {
+            *rect = window_layout::constrain(*rect, work);
         }
         return LRESULT(1);
     }
-    DefSubclassProc(hwnd, msg, wparam, lparam)
+    let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+    // Monitor topology and taskbar/work-area changes can hide a stationary widget.
+    if msg == 0x007E || msg == 0x001A {
+        let _ = window_layout::fit_window(hwnd);
+    }
+    result
 }
 
 #[cfg(target_os = "windows")]
@@ -423,8 +403,15 @@ fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-fn save_settings(app_handle: AppHandle, settings: Settings) -> Result<(), String> {
+fn save_settings(app_handle: AppHandle, mut settings: Settings) -> Result<(), String> {
     let path = get_file_path(&app_handle, "settings.json")?;
+    // UI preferences do not contain position; preserve the last screen position.
+    if settings.x.is_none() || settings.y.is_none() {
+        if let Ok(previous) = get_settings(app_handle.clone()) {
+            settings.x = previous.x;
+            settings.y = previous.y;
+        }
+    }
     let content = serde_json::to_string(&settings).map_err(|e| e.to_string())?;
     fs::write(path, content).map_err(|e| e.to_string())?;
     Ok(())
@@ -447,6 +434,48 @@ fn archive_tasks(app_handle: AppHandle, tasks_to_archive: Vec<Task>) -> Result<(
 }
 
 #[tauri::command]
+fn resize_widget(window: tauri::WebviewWindow, height: u32) -> Result<(), String> {
+    let height = height.clamp(300, 800);
+    #[cfg(target_os = "windows")]
+    {
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        unsafe {
+            window_layout::resize(
+                HWND(hwnd.0 as _),
+                (350.0 * scale).round() as i32,
+                (height as f64 * scale).round() as i32,
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_size(tauri::LogicalSize::new(350, height))
+            .map_err(|e| e.to_string())?;
+        if let Some(monitor) = window.current_monitor().map_err(|e| e.to_string())? {
+            let work = monitor.work_area();
+            let size = window.outer_size().map_err(|e| e.to_string())?;
+            let position = window.outer_position().map_err(|e| e.to_string())?;
+            let x = position.x.clamp(
+                work.position.x,
+                (work.position.x + work.size.width as i32 - size.width as i32).max(work.position.x),
+            );
+            let y = position.y.clamp(
+                work.position.y,
+                (work.position.y + work.size.height as i32 - size.height as i32)
+                    .max(work.position.y),
+            );
+            window
+                .set_position(tauri::PhysicalPosition::new(x, y))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn update_always_on_top<R: Runtime>(
     window: tauri::WebviewWindow<R>,
     always_on_top: bool,
@@ -461,6 +490,10 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
         if let Ok(hwnd) = window.hwnd() {
             let hwnd = HWND(hwnd.0 as _);
             unsafe {
+                let mut screen_rect = windows::Win32::Foundation::RECT::default();
+                let has_rect =
+                    windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut screen_rect)
+                        .is_ok();
                 let mut style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
                 if always_on_top {
                     // 移除装饰守护子类（如果之前安装过）
@@ -513,6 +546,10 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
                         SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE,
                     );
                 }
+                if has_rect {
+                    let _ = window_layout::set_screen_rect(hwnd, screen_rect);
+                    let _ = window_layout::fit_window(hwnd);
+                }
             }
         }
     }
@@ -524,7 +561,10 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -546,7 +586,8 @@ fn main() {
             archive_tasks,
             update_always_on_top,
             export_data,
-            import_data
+            import_data,
+            resize_widget
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -596,15 +637,21 @@ fn main() {
                     let hwnd = HWND(hwnd.0 as _);
                     unsafe {
                         let _ = SetWindowSubclass(hwnd, Some(edge_clamp_proc), EDGE_CLAMP_ID, 0);
+                        let _ = window_layout::fit_window(hwnd);
                     }
                 }
             }
 
             // Auto-save position on move
             let app_handle_for_event = handle.clone();
+            let window_for_event = window.clone();
             window.on_window_event(move |event| {
                 match event {
-                    tauri::WindowEvent::Moved(pos) => {
+                    tauri::WindowEvent::Moved(_) => {
+                        // Child-window move notifications may use parent coordinates.
+                        let Ok(pos) = window_for_event.outer_position() else {
+                            return;
+                        };
                         // 位置已由 WM_MOVING 子类限制在屏幕工作区内，直接保存
                         if let Ok(path) = get_file_path(&app_handle_for_event, "settings.json") {
                             if let Ok(content) = fs::read_to_string(&path) {
@@ -617,6 +664,14 @@ fn main() {
                                         serde_json::to_string(&settings).unwrap_or_default(),
                                     );
                                 }
+                            }
+                        }
+                    }
+                    tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                        #[cfg(target_os = "windows")]
+                        if let Ok(hwnd) = window_for_event.hwnd() {
+                            unsafe {
+                                let _ = window_layout::fit_window(HWND(hwnd.0 as _));
                             }
                         }
                     }
@@ -633,6 +688,7 @@ fn main() {
             let menu = Menu::with_items(handle, &[&show_i, &hide_i, &quit_i])?;
 
             let _tray = TrayIconBuilder::new()
+                .tooltip("我的待办 · 记录与完成每一件事")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .menu_on_left_click(false)
