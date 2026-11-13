@@ -1,5 +1,7 @@
 # 我的待办事项列表 (桌面小组件)
 
+**简体中文** | [English](README.en.md)
+
 这是一个基于 **Tauri v2**、**React 19** 和 **Vite 8** 构建的轻量级、半透明、无边框桌面“小组件”风格的待办事项列表。它旨在提供一个简洁且不干扰工作的界面，帮助您高效管理日常任务。
 
 ## ✨ 核心特性
@@ -39,7 +41,7 @@
 
 1. 克隆项目：
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/wuyufei1993/my-todo-list.git
    cd my-todo-list
    ```
 
