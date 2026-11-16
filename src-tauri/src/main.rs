@@ -4,6 +4,8 @@
 mod models;
 #[cfg(target_os = "windows")]
 mod window_layout;
+#[cfg(target_os = "windows")]
+mod windows_autostart;
 
 use models::{BackupData, Settings, Task};
 use std::fs;
@@ -560,11 +562,16 @@ fn apply_always_on_top<R: Runtime>(window: &tauri::WebviewWindow<R>, always_on_t
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    let autostart = windows_autostart::init();
+    #[cfg(not(target_os = "windows"))]
+    let autostart = tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--minimized"]),
+    );
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
+        .plugin(autostart)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
